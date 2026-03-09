@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CosKit</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Header -->
+<header id="header">
+  <div class="header-logo">
+    <img src="logo.svg" alt="CosKit" class="header-logo-img">
+    <h1>CosKit</h1>
+  </div>
+  <div class="header-actions">
+    <button id="btn-help" class="header-icon-btn" title="帮助">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10" r="8.5"/>
+        <path d="M7.5 7.5a2.5 2.5 0 0 1 4.85.8c0 1.7-2.35 2.2-2.35 2.2"/>
+        <circle cx="10" cy="14.5" r="0.5" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+    <button id="btn-history" class="header-icon-btn" title="历史会话">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10" r="8.5"/>
+        <polyline points="10 5.5 10 10 13.5 12"/>
+      </svg>
+    </button>
+    <button id="btn-settings" class="header-icon-btn" title="设置">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="10" cy="10" r="3"/>
+        <path d="M10 1.5v2M10 16.5v2M3.4 3.4l1.4 1.4M15.2 15.2l1.4 1.4M1.5 10h2M16.5 10h2M3.4 16.6l1.4-1.4M15.2 4.8l1.4-1.4"/>
+      </svg>
+    </button>
+    <button id="btn-new-session" title="新建会话">+ 新建会话</button>
+  </div>
+</header>
+
+<!-- Chat area -->
+<main id="chat-area">
+  <div id="welcome" class="welcome">
+    <p>上传一张图片开始修图</p>
+    <label class="upload-zone" id="upload-zone">
+      <input type="file" id="file-input" accept="image/*" hidden>
+      <span class="upload-icon">📎</span>
+      <span>点击或拖拽图片到此处</span>
+    </label>
+  </div>
+  <div id="messages" class="messages" style="display:none;"></div>
+</main>
+
+<!-- Input bar -->
+<footer id="input-bar" style="display:none;">
+  <label class="attach-btn" title="上传新图片">
+    <input type="file" id="file-input-inline" accept="image/*" hidden>
+    📎
+  </label>
+  <input type="text" id="prompt-input" placeholder="输入修图指令..." autocomplete="off">
+  <button id="btn-send">发送</button>
+</footer>
+
+<!-- Image viewer overlay -->
+<div id="image-viewer" class="image-viewer" style="display:none;">
+  <img id="viewer-img" src="">
+  <div class="viewer-actions">
+    <div id="viewer-export" class="viewer-btn" title="导出图片">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 14v3h14v-3"/>
+        <polyline points="10 3 10 13"/>
+        <polyline points="6 9 10 13 14 9"/>
+      </svg>
+    </div>
+    <div id="viewer-close" class="viewer-btn">✕</div>
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div id="settings-modal" class="settings-modal" style="display:none;">
+  <div class="settings-dialog">
+    <div class="settings-header">
+      <h2>设置</h2>
+      <button class="settings-close" id="settings-close">✕</button>
+    </div>
+
+    <div class="settings-tabs">
+      <button class="settings-tab active" data-tab="api">API 配置</button>
+      <button class="settings-tab" data-tab="prompts">系统提示词</button>
+    </div>
+
+    <div class="settings-body">
+      <!-- API tab -->
+      <div class="settings-pane" id="pane-api">
+        <div class="settings-section">
+          <h3>文本模型</h3>
+          <label>Base URL<input type="text" id="s-text-base-url" placeholder="留空使用 .env 配置"></label>
+          <label>API Key<input type="text" id="s-text-api-key" class="input-secret" placeholder="留空使用 .env 配置" autocomplete="off" spellcheck="false"></label>
+          <label>超时 (ms)<input type="number" id="s-text-timeout" min="10000" step="1000"></label>
+        </div>
+        <div class="settings-section">
+          <h3>图像模型</h3>
+          <label>Base URL<input type="text" id="s-image-base-url" placeholder="留空使用 .env 配置"></label>
+          <label>API Key<input type="text" id="s-image-api-key" class="input-secret" placeholder="留空使用文本模型 API Key" autocomplete="off" spellcheck="false"></label>
+          <label>超时 (ms)<input type="number" id="s-image-timeout" min="10000" step="1000"></label>
+        </div>
+      </div>
+
+      <!-- Prompts tab -->
+      <div class="settings-pane" id="pane-prompts" style="display:none;">
+        <div class="settings-section">
+          <div class="prompt-header">
+            <h3>场景识别 (detect_scene_type)</h3>
+            <button class="btn-reset-prompt" data-prompt="detect_scene_type">重置</button>
+          </div>
+          <p class="prompt-vars">变量: <code>{{KEYWORD_HINT}}</code></p>
+          <textarea id="s-prompt-detect" rows="6"></textarea>
+        </div>
+        <div class="settings-section">
+          <div class="prompt-header">
+            <h3>背景分析 (analyze_background)</h3>
+            <button class="btn-reset-prompt" data-prompt="analyze_background">重置</button>
+          </div>
+          <p class="prompt-vars">变量: <code>{{COSPLAY_HINT}}</code> <code>{{USER_BG_HINT}}</code> <code>{{USER_REQUEST_HINT}}</code></p>
+          <textarea id="s-prompt-bg" rows="8"></textarea>
+        </div>
+        <div class="settings-section">
+          <div class="prompt-header">
+            <h3>修图 (retouch_image)</h3>
+            <button class="btn-reset-prompt" data-prompt="retouch_image">重置</button>
+          </div>
+          <p class="prompt-vars">变量: <code>{{USER_SECTION}}</code> <code>{{BG_INSTRUCTION}}</code></p>
+          <textarea id="s-prompt-retouch" rows="8"></textarea>
+        </div>
+        <div class="settings-section">
+          <div class="prompt-header">
+            <h3>特效 (apply_cosplay_effect)</h3>
+            <button class="btn-reset-prompt" data-prompt="apply_cosplay_effect">重置</button>
+          </div>
+          <p class="prompt-vars">变量: <code>{{TONE_CONSTRAINT}}</code> <code>{{EFFECT_PROMPT}}</code></p>
+          <textarea id="s-prompt-effect" rows="6"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-footer">
+      <button class="btn-cancel" id="settings-cancel">取消</button>
+      <button class="btn-save" id="settings-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- History modal -->
+<div id="history-modal" class="settings-modal" style="display:none;">
+  <div class="settings-dialog" style="width:520px;">
+    <div class="settings-header">
+      <h2>历史会话</h2>
+      <button class="settings-close" id="history-close">✕</button>
+    </div>
+    <div class="settings-body">
+      <div id="history-list" class="history-list"></div>
+      <div id="history-empty" class="history-empty" style="display:none;">
+        <p style="text-align:center;color:var(--text-muted);padding:32px 0;">暂无历史会话</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Help modal -->
+<div id="help-modal" class="settings-modal" style="display:none;">
+  <div class="settings-dialog" style="width:520px;">
+    <div class="settings-header">
+      <h2>帮助</h2>
+      <button class="settings-close" id="help-close">✕</button>
+    </div>
+    <div class="settings-body">
+      <div class="help-content">
+        <div class="help-section">
+          <h3>快速开始</h3>
+          <ol>
+            <li>点击「+ 新建会话」或拖拽图片上传一张照片</li>
+            <li>在底部输入框输入修图指令（如"美白磨皮"、"换个二次元背景"）</li>
+            <li>等待 AI 返回修图结果，点击缩略图可放大查看</li>
+            <li>继续输入指令可基于当前结果迭代编辑，点击历史节点可从任意节点分支</li>
+          </ol>
+        </div>
+        <div class="help-section">
+          <h3>方法一：设置面板配置 API</h3>
+          <p>点击右上角 ⚙ 设置按钮 → 选择「API 配置」tab → 填写 API Key、Base URL 和超时时间 → 保存即可。</p>
+        </div>
+        <div class="help-section">
+          <h3>方法二：使用 .env 文件</h3>
+          <p>在程序同级目录下创建 <code>.env</code> 文件，内容如下：</p>
+          <pre class="help-code">GEMINI_API_KEY=your_api_key_here
+GEMINI_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3.1-pro-preview:generateContent
+GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-image-preview:generateContent</pre>
+        </div>
+        <div class="help-section">
+          <h3>支持的环境变量</h3>
+          <ul>
+            <li><code>GEMINI_API_KEY</code> — Gemini API 密钥</li>
+            <li><code>GEMINI_BASE_URL</code> — 文本模型代理地址（含模型名）</li>
+            <li><code>GEMINI_IMAGE_BASE_URL</code> — 图像模型代理地址（含模型名）</li>
+          </ul>
+          <p class="help-note">设置面板中的配置优先级高于 .env 文件。留空则自动使用 .env 中的值。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

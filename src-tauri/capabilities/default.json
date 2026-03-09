@@ -1,0 +1,9 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for CosKit",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default"
+  ]
+}

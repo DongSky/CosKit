@@ -1,0 +1,10 @@
+{
+  "name": "coskit",
+  "version": "0.0.2",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}
