@@ -515,6 +515,7 @@ name = "coskit"
 version = "0.0.2"
 dependencies = [
  "base64 0.22.1",
+ "dirs",
  "image",
  "rand 0.8.5",
  "reqwest 0.12.28",

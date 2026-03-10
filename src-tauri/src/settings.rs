@@ -4,13 +4,34 @@ use std::path::PathBuf;
 
 use crate::models::Settings;
 
-/// Return the data directory: `<exe_parent>/data/`
+/// Return the platform-standard data directory for CosKit.
+///
+/// - macOS:   `~/Library/Application Support/CosKit/`
+/// - Windows: `%APPDATA%/CosKit/`
+/// - Linux:   `~/.local/share/CosKit/`
+///
+/// Falls back to `<exe_parent>/data/` if home directory cannot be determined.
 pub fn data_dir() -> PathBuf {
-    let base = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| PathBuf::from("."));
-    let dir = base.join("data");
+    let dir = if cfg!(target_os = "macos") {
+        dirs::home_dir().map(|h| h.join("Library/Application Support/CosKit"))
+    } else if cfg!(target_os = "windows") {
+        std::env::var("APPDATA")
+            .ok()
+            .map(|a| PathBuf::from(a).join("CosKit"))
+    } else {
+        // Linux / other
+        dirs::home_dir().map(|h| h.join(".local/share/CosKit"))
+    };
+
+    let dir = dir.unwrap_or_else(|| {
+        // Fallback: exe_parent/data/
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("data")
+    });
+
     let _ = fs::create_dir_all(&dir);
     dir
 }

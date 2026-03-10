@@ -26,8 +26,17 @@ pub fn load_dotenv(path: &Path) {
     }
 }
 
-/// Load .env files from exe directory and its parent.
+/// Load .env files from multiple locations (first found wins per variable):
+///   1. CosKit data dir (~/Library/Application Support/CosKit/.env)
+///   2. exe directory
+///   3. exe parent directory
+///   4. $HOME/.env
 pub fn load_dotenv_files() {
+    // 1. Data dir
+    let data_dir = crate::settings::data_dir();
+    load_dotenv(&data_dir.join(".env"));
+
+    // 2-3. Exe directory and its parent
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             load_dotenv(&dir.join(".env"));
@@ -35,6 +44,11 @@ pub fn load_dotenv_files() {
                 load_dotenv(&parent.join(".env"));
             }
         }
+    }
+
+    // 4. Home directory
+    if let Some(home) = dirs::home_dir() {
+        load_dotenv(&home.join(".env"));
     }
 }
 
