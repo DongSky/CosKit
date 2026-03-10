@@ -124,11 +124,21 @@ pub fn load_settings() -> Settings {
                 if let Some(v) = saved.get("text_api_key").and_then(|v| v.as_str()) {
                     settings.text_api_key = v.to_string();
                 }
+                if let Some(v) = saved.get("text_model").and_then(|v| v.as_str()) {
+                    if !v.is_empty() {
+                        settings.text_model = v.to_string();
+                    }
+                }
                 if let Some(v) = saved.get("image_base_url").and_then(|v| v.as_str()) {
                     settings.image_base_url = v.to_string();
                 }
                 if let Some(v) = saved.get("image_api_key").and_then(|v| v.as_str()) {
                     settings.image_api_key = v.to_string();
+                }
+                if let Some(v) = saved.get("image_model").and_then(|v| v.as_str()) {
+                    if !v.is_empty() {
+                        settings.image_model = v.to_string();
+                    }
                 }
                 if let Some(v) = saved.get("text_timeout_ms").and_then(|v| v.as_u64()) {
                     settings.text_timeout_ms = v;

@@ -89,26 +89,31 @@ impl GeminiClients {
         }
 
         // Parse proxy URLs
-        let (text_base, text_model) = if !text_url_raw.is_empty() {
+        let (text_base, url_text_model) = if !text_url_raw.is_empty() {
             parse_proxy_url(&text_url_raw)
         } else {
-            (String::new(), DEFAULT_TEXT_MODEL.to_string())
+            (String::new(), String::new())
         };
-        let (image_base, image_model) = if !image_url_raw.is_empty() {
+        let (image_base, url_image_model) = if !image_url_raw.is_empty() {
             parse_proxy_url(&image_url_raw)
         } else {
-            (String::new(), DEFAULT_IMAGE_MODEL.to_string())
+            (String::new(), String::new())
         };
 
-        let text_model = if text_model.is_empty() {
+        // Model priority: settings field > URL-parsed > default
+        let text_model = if !settings.text_model.trim().is_empty() {
+            settings.text_model.trim().to_string()
+        } else if !url_text_model.is_empty() {
+            url_text_model
+        } else {
             DEFAULT_TEXT_MODEL.to_string()
-        } else {
-            text_model
         };
-        let image_model = if image_model.is_empty() {
-            DEFAULT_IMAGE_MODEL.to_string()
+        let image_model = if !settings.image_model.trim().is_empty() {
+            settings.image_model.trim().to_string()
+        } else if !url_image_model.is_empty() {
+            url_image_model
         } else {
-            image_model
+            DEFAULT_IMAGE_MODEL.to_string()
         };
 
         // Build full API URLs

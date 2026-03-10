@@ -453,9 +453,11 @@
   async function openSettings() {
     const settings = await api().get_settings();
     // Populate API fields
+    document.getElementById("s-text-model").value = settings.text_model || "";
     document.getElementById("s-text-base-url").value = settings.text_base_url || "";
     document.getElementById("s-text-api-key").value = settings.text_api_key || "";
     document.getElementById("s-text-timeout").value = settings.text_timeout_ms || 180000;
+    document.getElementById("s-image-model").value = settings.image_model || "";
     document.getElementById("s-image-base-url").value = settings.image_base_url || "";
     document.getElementById("s-image-api-key").value = settings.image_api_key || "";
     document.getElementById("s-image-timeout").value = settings.image_timeout_ms || 300000;
@@ -475,9 +477,11 @@
 
   async function saveSettingsFromUI() {
     const settings = {
+      text_model: document.getElementById("s-text-model").value.trim(),
       text_base_url: document.getElementById("s-text-base-url").value.trim(),
       text_api_key: document.getElementById("s-text-api-key").value.trim(),
       text_timeout_ms: parseInt(document.getElementById("s-text-timeout").value, 10) || 180000,
+      image_model: document.getElementById("s-image-model").value.trim(),
       image_base_url: document.getElementById("s-image-base-url").value.trim(),
       image_api_key: document.getElementById("s-image-api-key").value.trim(),
       image_timeout_ms: parseInt(document.getElementById("s-image-timeout").value, 10) || 300000,

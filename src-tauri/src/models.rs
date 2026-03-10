@@ -103,9 +103,13 @@ pub struct Settings {
     #[serde(default)]
     pub text_api_key: String,
     #[serde(default)]
+    pub text_model: String,
+    #[serde(default)]
     pub image_base_url: String,
     #[serde(default)]
     pub image_api_key: String,
+    #[serde(default)]
+    pub image_model: String,
     #[serde(default = "default_text_timeout")]
     pub text_timeout_ms: u64,
     #[serde(default = "default_image_timeout")]
@@ -126,8 +130,10 @@ impl Default for Settings {
         Self {
             text_base_url: String::new(),
             text_api_key: String::new(),
+            text_model: crate::gemini_client::DEFAULT_TEXT_MODEL.to_string(),
             image_base_url: String::new(),
             image_api_key: String::new(),
+            image_model: crate::gemini_client::DEFAULT_IMAGE_MODEL.to_string(),
             text_timeout_ms: 180000,
             image_timeout_ms: 300000,
             prompts: crate::settings::default_prompts(),
