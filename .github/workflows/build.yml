@@ -65,6 +65,19 @@ jobs:
             ### Downloads
             - **macOS (Apple Silicon)**: `CosKit_x.x.x_aarch64.dmg`
             - **macOS (Intel)**: `CosKit_x.x.x_x64.dmg`
-            - **Windows**: `CosKit_x.x.x_x64-setup.exe` or `.msi`
+            - **Windows (安装版)**: `CosKit_x.x.x_x64-setup.exe` or `.msi`
+            - **Windows (便携版)**: `CosKit_x.x.x_x64_portable.exe`
           releaseDraft: true
           prerelease: false
+
+      - name: Upload Windows portable exe
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          $src = "src-tauri/target/${{ matrix.target }}/release/coskit.exe"
+          $dst = "CosKit_${version}_x64_portable.exe"
+          Copy-Item $src $dst
+          gh release upload ${{ github.ref_name }} $dst --clobber
