@@ -6,6 +6,7 @@ use rand::Rng;
 use serde_json::{json, Value};
 
 use crate::image_utils;
+use crate::models::ReferenceImage;
 use crate::settings;
 
 pub const DEFAULT_TEXT_MODEL: &str = "gemini-3.1-pro-preview";
@@ -77,10 +78,15 @@ impl GeminiClients {
         };
         let image_api_key = if !settings.image_api_key.trim().is_empty() {
             settings.image_api_key.trim().to_string()
-        } else if !text_api_key.is_empty() {
-            text_api_key.clone()
         } else {
-            String::new()
+            let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_API_KEY");
+            if !env_val.trim().is_empty() {
+                env_val.trim().to_string()
+            } else if !text_api_key.is_empty() {
+                text_api_key.clone()
+            } else {
+                String::new()
+            }
         };
         let image_timeout = settings.image_timeout_ms;
 
@@ -100,20 +106,30 @@ impl GeminiClients {
             (String::new(), String::new())
         };
 
-        // Model priority: settings field > URL-parsed > default
+        // Model priority: settings field > env var > URL-parsed > default
         let text_model = if !settings.text_model.trim().is_empty() {
             settings.text_model.trim().to_string()
-        } else if !url_text_model.is_empty() {
-            url_text_model
         } else {
-            DEFAULT_TEXT_MODEL.to_string()
+            let env_val = crate::dotenv::get_env_var("GEMINI_TEXT_MODEL");
+            if !env_val.trim().is_empty() {
+                env_val.trim().to_string()
+            } else if !url_text_model.is_empty() {
+                url_text_model
+            } else {
+                DEFAULT_TEXT_MODEL.to_string()
+            }
         };
         let image_model = if !settings.image_model.trim().is_empty() {
             settings.image_model.trim().to_string()
-        } else if !url_image_model.is_empty() {
-            url_image_model
         } else {
-            DEFAULT_IMAGE_MODEL.to_string()
+            let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_MODEL");
+            if !env_val.trim().is_empty() {
+                env_val.trim().to_string()
+            } else if !url_image_model.is_empty() {
+                url_image_model
+            } else {
+                DEFAULT_IMAGE_MODEL.to_string()
+            }
         };
 
         // Build full API URLs
@@ -348,6 +364,54 @@ fn build_text_and_image_contents(text: &str, image_b64: &str) -> Value {
     }])
 }
 
+/// Build contents with the source image and optional reference images interleaved.
+fn build_contents_with_references(
+    text: &str,
+    image_b64: &str,
+    references: &[ReferenceImage],
+) -> Value {
+    if references.is_empty() {
+        return build_text_and_image_contents(text, image_b64);
+    }
+
+    let mut parts = vec![
+        json!({"text": text}),
+        json!({"inline_data": {"mime_type": "image/jpeg", "data": image_b64}}),
+    ];
+
+    for (i, ref_img) in references.iter().enumerate() {
+        let desc = if ref_img.description.trim().is_empty() {
+            format!("\n参考图 {}：", i + 1)
+        } else {
+            format!("\n参考图 {}（{}）：", i + 1, ref_img.description.trim())
+        };
+        parts.push(json!({"text": desc}));
+        parts.push(json!({"inline_data": {"mime_type": "image/jpeg", "data": ref_img.data}}));
+    }
+
+    json!([{"parts": parts}])
+}
+
+/// Generate the reference images hint for prompt templates.
+fn reference_images_hint(references: &[ReferenceImage]) -> String {
+    if references.is_empty() {
+        return String::new();
+    }
+    let mut hint = String::from(
+        "【参考图像】用户附带了参考图像，请根据每张参考图的说明理解其用途，并在处理时参考相关信息。",
+    );
+    for (i, ref_img) in references.iter().enumerate() {
+        if !ref_img.description.trim().is_empty() {
+            hint.push_str(&format!(
+                "\n  - 参考图 {}：{}",
+                i + 1,
+                ref_img.description.trim()
+            ));
+        }
+    }
+    hint
+}
+
 fn text_config(temperature: f64) -> Value {
     json!({
         "temperature": temperature,
@@ -372,6 +436,7 @@ fn image_config(temperature: f64) -> Value {
 pub async fn detect_scene_type(
     image_b64: &str,
     user_prompt: &str,
+    references: &[ReferenceImage],
 ) -> Result<Value, String> {
     // Clone clients (drops lock immediately)
     let clients = get_clients()?;
@@ -397,15 +462,19 @@ pub async fn detect_scene_type(
         format!("用户提及关键词：{}", matched.join("、"))
     };
 
+    let ref_hint = reference_images_hint(references);
+
     let default_prompts = settings::default_prompts();
     let tmpl = clients
         .prompts
         .get("detect_scene_type")
         .unwrap_or_else(|| default_prompts.get("detect_scene_type").unwrap());
-    let prompt = tmpl.replace("{{KEYWORD_HINT}}", &keyword_hint);
+    let prompt = tmpl
+        .replace("{{KEYWORD_HINT}}", &keyword_hint)
+        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let contents = build_text_and_image_contents(&prompt, image_b64);
+    let contents = build_contents_with_references(&prompt, image_b64, references);
     let config = text_config(0.1);
 
     let resp = call_with_retry(
@@ -435,6 +504,7 @@ pub async fn analyze_background(
     scene: &Value,
     user_prompt: &str,
     bg_prompt: &str,
+    references: &[ReferenceImage],
 ) -> Result<String, String> {
     let clients = get_clients()?;
 
@@ -457,6 +527,7 @@ pub async fn analyze_background(
     } else {
         String::new()
     };
+    let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
     let tmpl = clients
@@ -466,10 +537,11 @@ pub async fn analyze_background(
     let prompt = tmpl
         .replace("{{COSPLAY_HINT}}", cosplay_hint)
         .replace("{{USER_BG_HINT}}", &user_bg_hint)
-        .replace("{{USER_REQUEST_HINT}}", &user_request_hint);
+        .replace("{{USER_REQUEST_HINT}}", &user_request_hint)
+        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let contents = build_text_and_image_contents(&prompt, image_b64);
+    let contents = build_contents_with_references(&prompt, image_b64, references);
     let config = text_config(0.3);
 
     let resp = call_with_retry(
@@ -496,6 +568,7 @@ pub async fn retouch_image(
     image_b64: &str,
     user_prompt: &str,
     bg_suggestion: &str,
+    references: &[ReferenceImage],
 ) -> Result<(Vec<u8>, String), String> {
     let clients = get_clients()?;
 
@@ -514,6 +587,7 @@ pub async fn retouch_image(
     } else {
         String::new()
     };
+    let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
     let tmpl = clients
@@ -522,10 +596,11 @@ pub async fn retouch_image(
         .unwrap_or_else(|| default_prompts.get("retouch_image").unwrap());
     let prompt = tmpl
         .replace("{{USER_SECTION}}", &user_section)
-        .replace("{{BG_INSTRUCTION}}", &bg_instruction);
+        .replace("{{BG_INSTRUCTION}}", &bg_instruction)
+        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let contents = build_text_and_image_contents(&prompt, image_b64);
+    let contents = build_contents_with_references(&prompt, image_b64, references);
     let config = image_config(0.3);
 
     let resp = call_with_retry(
@@ -541,7 +616,7 @@ pub async fn retouch_image(
     let mut img_bytes = extract_image_bytes(&resp);
     let mut note = extract_text(&resp);
 
-    // Retry if no image returned
+    // Retry if no image returned (without references to reduce payload)
     if img_bytes.is_none() {
         let retry_prompt = format!("{prompt}\n\n注意：必须返回图片。");
         let contents = build_text_and_image_contents(&retry_prompt, image_b64);
@@ -583,6 +658,7 @@ pub async fn apply_cosplay_effect(
     image_b64: &str,
     effect_prompt: &str,
     user_prompt: &str,
+    references: &[ReferenceImage],
 ) -> Result<(Vec<u8>, String), String> {
     let clients = get_clients()?;
 
@@ -598,6 +674,7 @@ pub async fn apply_cosplay_effect(
     } else {
         effect_prompt
     };
+    let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
     let tmpl = clients
@@ -606,10 +683,11 @@ pub async fn apply_cosplay_effect(
         .unwrap_or_else(|| default_prompts.get("apply_cosplay_effect").unwrap());
     let prompt = tmpl
         .replace("{{TONE_CONSTRAINT}}", &tone_constraint)
-        .replace("{{EFFECT_PROMPT}}", effect_text);
+        .replace("{{EFFECT_PROMPT}}", effect_text)
+        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let contents = build_text_and_image_contents(&prompt, image_b64);
+    let contents = build_contents_with_references(&prompt, image_b64, references);
     let config = json!({
         "responseModalities": ["TEXT", "IMAGE"]
     });

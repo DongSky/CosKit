@@ -66,6 +66,14 @@ pub fn base64_to_bytes(b64: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("base64 decode error: {e}"))
 }
 
+/// Resize image so longest side is at most `max_dim` pixels. No-op if already smaller.
+pub fn resize_max_dimension(img: &DynamicImage, max_dim: u32) -> DynamicImage {
+    if img.width() <= max_dim && img.height() <= max_dim {
+        return img.clone();
+    }
+    img.resize(max_dim, max_dim, image::imageops::FilterType::Lanczos3)
+}
+
 /// Load image from file path.
 pub fn load_image_from_path(path: &str) -> Result<DynamicImage, String> {
     image::open(path)

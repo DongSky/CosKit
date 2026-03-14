@@ -125,6 +125,38 @@ fn default_image_timeout() -> u64 {
     300000
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineModules {
+    #[serde(default = "default_true")]
+    pub retouch: bool,
+    #[serde(default)]
+    pub background: bool,
+    #[serde(default)]
+    pub effects: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for PipelineModules {
+    fn default() -> Self {
+        Self {
+            retouch: true,
+            background: false,
+            effects: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferenceImage {
+    #[serde(default)]
+    pub data: String,
+    #[serde(default)]
+    pub description: String,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {

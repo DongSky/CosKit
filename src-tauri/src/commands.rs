@@ -6,7 +6,7 @@ use tauri::State;
 use crate::engine::{self, AppState};
 use crate::gemini_client::GeminiClients;
 use crate::image_utils;
-use crate::models::EditNode;
+use crate::models::{EditNode, PipelineModules, ReferenceImage};
 use crate::settings;
 
 fn node_to_value(node: &EditNode) -> Value {
@@ -125,8 +125,11 @@ pub async fn submit_edit(
     session_id: String,
     parent_node_id: String,
     prompt: String,
+    modules: PipelineModules,
+    reference_images: Option<Vec<ReferenceImage>>,
 ) -> Result<Value, String> {
-    let node = engine::submit_edit(&state, &session_id, &parent_node_id, &prompt)?;
+    let reference_images = reference_images.unwrap_or_default();
+    let node = engine::submit_edit(&state, &session_id, &parent_node_id, &prompt, modules, reference_images)?;
 
     let active_path = {
         let sessions = state.sessions.read().map_err(|e| e.to_string())?;

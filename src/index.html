@@ -53,12 +53,31 @@
 
 <!-- Input bar -->
 <footer id="input-bar" style="display:none;">
-  <label class="attach-btn" title="上传新图片">
-    <input type="file" id="file-input-inline" accept="image/*" hidden>
-    📎
-  </label>
-  <input type="text" id="prompt-input" placeholder="输入修图指令..." autocomplete="off">
-  <button id="btn-send">发送</button>
+  <div class="pipeline-modules" id="pipeline-modules">
+    <button class="module-toggle active" data-module="retouch">美化人像</button>
+    <button class="module-toggle" data-module="background">更换背景</button>
+    <button class="module-toggle" data-module="effects">添加特效</button>
+  </div>
+  <div class="ref-images-area" id="ref-images-area" style="display:none;">
+    <div class="ref-images-list" id="ref-images-list"></div>
+  </div>
+  <div class="input-row">
+    <label class="attach-btn" title="上传新图片">
+      <input type="file" id="file-input-inline" accept="image/*" hidden>
+      📎
+    </label>
+    <label class="ref-add-btn" title="添加参考图">
+      <input type="file" id="ref-file-input" accept="image/*" multiple hidden>
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="3" width="16" height="14" rx="2"/>
+        <circle cx="7" cy="8.5" r="1.5"/>
+        <path d="M18 13l-4-4-6 6"/>
+        <path d="M12 3v-0" stroke="none"/>
+      </svg>
+    </label>
+    <input type="text" id="prompt-input" placeholder="输入修图指令..." autocomplete="off">
+    <button id="btn-send">发送</button>
+  </div>
 </footer>
 
 <!-- Image viewer overlay -->
@@ -115,7 +134,7 @@
             <h3>场景识别 (detect_scene_type)</h3>
             <button class="btn-reset-prompt" data-prompt="detect_scene_type">重置</button>
           </div>
-          <p class="prompt-vars">变量: <code>{{KEYWORD_HINT}}</code></p>
+          <p class="prompt-vars">变量: <code>{{KEYWORD_HINT}}</code> <code>{{REFERENCE_IMAGES_HINT}}</code></p>
           <textarea id="s-prompt-detect" rows="6"></textarea>
         </div>
         <div class="settings-section">
@@ -123,7 +142,7 @@
             <h3>背景分析 (analyze_background)</h3>
             <button class="btn-reset-prompt" data-prompt="analyze_background">重置</button>
           </div>
-          <p class="prompt-vars">变量: <code>{{COSPLAY_HINT}}</code> <code>{{USER_BG_HINT}}</code> <code>{{USER_REQUEST_HINT}}</code></p>
+          <p class="prompt-vars">变量: <code>{{COSPLAY_HINT}}</code> <code>{{USER_BG_HINT}}</code> <code>{{USER_REQUEST_HINT}}</code> <code>{{REFERENCE_IMAGES_HINT}}</code></p>
           <textarea id="s-prompt-bg" rows="8"></textarea>
         </div>
         <div class="settings-section">
@@ -131,7 +150,7 @@
             <h3>修图 (retouch_image)</h3>
             <button class="btn-reset-prompt" data-prompt="retouch_image">重置</button>
           </div>
-          <p class="prompt-vars">变量: <code>{{USER_SECTION}}</code> <code>{{BG_INSTRUCTION}}</code></p>
+          <p class="prompt-vars">变量: <code>{{USER_SECTION}}</code> <code>{{BG_INSTRUCTION}}</code> <code>{{REFERENCE_IMAGES_HINT}}</code></p>
           <textarea id="s-prompt-retouch" rows="8"></textarea>
         </div>
         <div class="settings-section">
@@ -139,7 +158,7 @@
             <h3>特效 (apply_cosplay_effect)</h3>
             <button class="btn-reset-prompt" data-prompt="apply_cosplay_effect">重置</button>
           </div>
-          <p class="prompt-vars">变量: <code>{{TONE_CONSTRAINT}}</code> <code>{{EFFECT_PROMPT}}</code></p>
+          <p class="prompt-vars">变量: <code>{{TONE_CONSTRAINT}}</code> <code>{{EFFECT_PROMPT}}</code> <code>{{REFERENCE_IMAGES_HINT}}</code></p>
           <textarea id="s-prompt-effect" rows="6"></textarea>
         </div>
       </div>
