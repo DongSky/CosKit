@@ -329,7 +329,8 @@
         <span>基于: ${escapeHtml(notePreview)}...</span>
         <button onclick="window._coskit_clearEditFrom()">✕</button>
       `;
-      inputBar.insertBefore(indicator, promptInput);
+      const inputRow = inputBar.querySelector(".input-row");
+      inputBar.insertBefore(indicator, inputRow);
     }
   }
 
