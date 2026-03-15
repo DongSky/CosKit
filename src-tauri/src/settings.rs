@@ -51,7 +51,8 @@ pub fn default_prompts() -> HashMap<String, String> {
            \"is_cosplay\": true/false,\n\
            \"reason\": \"不超过30字\"\n\
          }\n\
-         {{KEYWORD_HINT}}"
+         {{KEYWORD_HINT}}\n\
+         {{REFERENCE_IMAGES_HINT}}"
             .to_string(),
     );
     m.insert(
@@ -66,6 +67,7 @@ pub fn default_prompts() -> HashMap<String, String> {
          {{COSPLAY_HINT}}\n\
          {{USER_BG_HINT}}\n\
          {{USER_REQUEST_HINT}}\n\
+         {{REFERENCE_IMAGES_HINT}}\n\
          \n\
          请用简明中文输出，仅包含推荐的背景描述（一句话，不超过 80 字，需注明适配的视角）。\n\
          如果当前背景已经很合适，输出\"保持原背景\"。"
@@ -76,6 +78,7 @@ pub fn default_prompts() -> HashMap<String, String> {
         "使用Nano Banana编辑图像。任务如下：请对输入照片进行专业修图。\n\
          \n\
          {{USER_SECTION}}\n\
+         {{REFERENCE_IMAGES_HINT}}\n\
          \n\
          【修图安全规范（在满足用户需求的前提下遵守）】\n\
          - 人像美化：肤质自然、保留细节；若用户未指定则保持自然、不过度磨皮；\n\
@@ -95,6 +98,7 @@ pub fn default_prompts() -> HashMap<String, String> {
          - 特效强度轻度，优先突出人物主体；\n\
          - 禁止重度滤镜、过曝、夸张变形。\n\
          {{TONE_CONSTRAINT}}\n\
+         {{REFERENCE_IMAGES_HINT}}\n\
          特效偏好：{{EFFECT_PROMPT}}"
             .to_string(),
     );

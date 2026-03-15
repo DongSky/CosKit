@@ -13,6 +13,7 @@
   let cachedDefaults = null; // cached default settings for prompt reset
   let viewerSessionId = null; // tracked for export
   let viewerNodeId = null; // tracked for export
+  let referenceImages = []; // Array of { dataUrl: string, description: string }
 
   // ── DOM refs ───────────────────────────────────────────
   const welcome = document.getElementById("welcome");
@@ -54,7 +55,7 @@
     get_session: ["session_id"],
     list_sessions: [],
     delete_session: ["session_id"],
-    submit_edit: ["session_id", "parent_node_id", "prompt"],
+    submit_edit: ["session_id", "parent_node_id", "prompt", "modules", "reference_images"],
     get_node_status: ["session_id", "node_id"],
     navigate_branch: ["session_id", "parent_node_id", "direction"],
     goto_node: ["session_id", "node_id"],
@@ -335,6 +336,65 @@
   // Expose for inline onclick
   window._coskit_clearEditFrom = clearEditFrom;
 
+  // ── Reference images ─────────────────────────────────
+  const refImagesArea = document.getElementById("ref-images-area");
+  const refImagesList = document.getElementById("ref-images-list");
+  const refFileInput = document.getElementById("ref-file-input");
+
+  function renderReferenceImages() {
+    refImagesList.innerHTML = "";
+    if (referenceImages.length === 0) {
+      refImagesArea.style.display = "none";
+      return;
+    }
+    refImagesArea.style.display = "flex";
+
+    referenceImages.forEach((ref, idx) => {
+      const card = document.createElement("div");
+      card.className = "ref-card";
+
+      const thumbWrap = document.createElement("div");
+      thumbWrap.className = "ref-card-thumb";
+      const img = document.createElement("img");
+      img.src = ref.dataUrl;
+      img.alt = "参考图";
+      thumbWrap.appendChild(img);
+
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "ref-card-remove";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "移除";
+      removeBtn.onclick = (e) => {
+        e.stopPropagation();
+        referenceImages.splice(idx, 1);
+        renderReferenceImages();
+      };
+      thumbWrap.appendChild(removeBtn);
+      card.appendChild(thumbWrap);
+
+      const descInput = document.createElement("input");
+      descInput.type = "text";
+      descInput.className = "ref-card-desc";
+      descInput.placeholder = "说明...";
+      descInput.value = ref.description;
+      descInput.addEventListener("input", () => {
+        referenceImages[idx].description = descInput.value;
+      });
+      card.appendChild(descInput);
+
+      refImagesList.appendChild(card);
+    });
+  }
+
+  function collectReferenceData() {
+    return referenceImages.map((ref) => {
+      const b64 = ref.dataUrl.includes(",")
+        ? ref.dataUrl.split(",")[1]
+        : ref.dataUrl;
+      return { data: b64, description: ref.description };
+    });
+  }
+
   // ── Submit edit ────────────────────────────────────────
   async function submitEdit() {
     const prompt = promptInput.value.trim();
@@ -350,15 +410,29 @@
       parentId = sessionData.active_path[sessionData.active_path.length - 1];
     }
 
+    // Read module toggles
+    const modules = {
+      retouch: !!document.querySelector('.module-toggle[data-module="retouch"].active'),
+      background: !!document.querySelector('.module-toggle[data-module="background"].active'),
+      effects: !!document.querySelector('.module-toggle[data-module="effects"].active'),
+    };
+
+    // Collect reference images
+    const refData = collectReferenceData();
+
     promptInput.value = "";
     btnSend.disabled = true;
 
-    const result = await api().submit_edit(currentSessionId, parentId, prompt);
+    const result = await api().submit_edit(currentSessionId, parentId, prompt, modules, refData);
     if (result.error) {
       alert("提交失败: " + result.error);
       btnSend.disabled = false;
       return;
     }
+
+    // Clear reference images after submission
+    referenceImages = [];
+    renderReferenceImages();
 
     // Update active path
     sessionData.active_path = result.active_path;
@@ -427,15 +501,19 @@
     welcome.style.display = "none";
     messagesEl.style.display = "flex";
     inputBar.style.display = "flex";
+    document.getElementById("pipeline-modules").style.display = "flex";
   }
 
   function showWelcomeMode() {
     welcome.style.display = "flex";
     messagesEl.style.display = "none";
     inputBar.style.display = "none";
+    document.getElementById("pipeline-modules").style.display = "none";
     currentSessionId = null;
     sessionData = null;
     editFromNodeId = null;
+    referenceImages = [];
+    renderReferenceImages();
     // Stop all polling
     Object.keys(pollingTimers).forEach(stopPolling);
   }
@@ -635,6 +713,17 @@
     e.target.value = "";
   });
 
+  // Reference image file input
+  refFileInput.addEventListener("change", async (e) => {
+    for (const file of e.target.files) {
+      if (!file.type.startsWith("image/")) continue;
+      const dataUrl = await readFileAsBase64(file);
+      referenceImages.push({ dataUrl, description: "" });
+    }
+    renderReferenceImages();
+    e.target.value = "";
+  });
+
   btnSend.addEventListener("click", submitEdit);
 
   promptInput.addEventListener("keydown", (e) => {
@@ -690,6 +779,16 @@
   // Individual prompt reset buttons
   document.querySelectorAll(".btn-reset-prompt").forEach((btn) => {
     btn.addEventListener("click", () => resetSinglePrompt(btn.dataset.prompt));
+  });
+
+  // Module toggle buttons
+  document.querySelectorAll(".module-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const activeToggles = document.querySelectorAll(".module-toggle.active");
+      // Prevent deactivating the last active toggle
+      if (btn.classList.contains("active") && activeToggles.length <= 1) return;
+      btn.classList.toggle("active");
+    });
   });
 
   // Settings modal: click backdrop to close

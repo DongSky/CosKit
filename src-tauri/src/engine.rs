@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::gemini_client;
 use crate::image_utils;
-use crate::models::{EditNode, Session};
+use crate::models::{EditNode, PipelineModules, ReferenceImage, Session};
 use crate::settings;
 
 // ---------------------------------------------------------------------------
@@ -196,6 +196,8 @@ pub fn submit_edit(
     session_id: &str,
     parent_node_id: &str,
     prompt: &str,
+    modules: PipelineModules,
+    reference_images: Vec<ReferenceImage>,
 ) -> Result<EditNode, String> {
     let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
     let session = sessions.get_mut(session_id).ok_or("session not found")?;
@@ -223,7 +225,6 @@ pub fn submit_edit(
         .map(|n| n.image_path.clone())
         .unwrap_or_default();
     let original_size = session.original_size;
-    let is_first_round = parent_node_id == session.root_id;
     let session_id = session_id.to_string();
     let prompt = prompt.to_string();
     let node_id = nid.clone();
@@ -239,7 +240,8 @@ pub fn submit_edit(
             parent_image_path,
             prompt,
             original_size,
-            is_first_round,
+            modules,
+            reference_images,
         )
         .await;
     });
@@ -272,6 +274,22 @@ fn save_session_from_map(sessions: &RwLock<HashMap<String, Session>>, session_id
     }
 }
 
+/// Resize reference images to a reasonable max dimension before sending to API.
+fn prepare_reference_images(refs: Vec<ReferenceImage>) -> Vec<ReferenceImage> {
+    refs.into_iter()
+        .filter_map(|r| {
+            let bytes = image_utils::base64_to_bytes(&r.data).ok()?;
+            let img = image_utils::load_image_from_bytes(&bytes).ok()?;
+            let resized = image_utils::resize_max_dimension(&img, 1024);
+            let jpg_bytes = image_utils::image_to_jpeg_bytes(&resized, 85).ok()?;
+            Some(ReferenceImage {
+                data: image_utils::bytes_to_base64(&jpg_bytes),
+                description: r.description,
+            })
+        })
+        .collect()
+}
+
 async fn run_edit_pipeline(
     sessions: Arc<RwLock<HashMap<String, Session>>>,
     session_id: String,
@@ -279,12 +297,16 @@ async fn run_edit_pipeline(
     parent_image_path: String,
     prompt: String,
     original_size: (u32, u32),
-    is_first_round: bool,
+    modules: PipelineModules,
+    reference_images: Vec<ReferenceImage>,
 ) {
     // Set status to processing
     update_node(&sessions, &session_id, &node_id, |node| {
         node.status = "processing".to_string();
     });
+
+    // Prepare reference images (resize to max 1024px)
+    let references = prepare_reference_images(reference_images);
 
     // Load parent image and encode to base64
     let parent_img = match image_utils::load_image_from_path(&parent_image_path) {
@@ -312,12 +334,17 @@ async fn run_edit_pipeline(
     };
     let image_b64 = image_utils::bytes_to_base64(&img_bytes);
 
-    let result = if is_first_round {
-        run_full_pipeline(&sessions, &session_id, &node_id, &image_b64, &prompt, original_size)
-            .await
-    } else {
-        run_light_pipeline(&sessions, &session_id, &node_id, &image_b64, &prompt).await
-    };
+    let result = run_modular_pipeline(
+        &sessions,
+        &session_id,
+        &node_id,
+        &image_b64,
+        &prompt,
+        original_size,
+        &modules,
+        &references,
+    )
+    .await;
 
     match result {
         Ok((result_bytes, note)) => {
@@ -370,114 +397,130 @@ async fn run_edit_pipeline(
     }
 }
 
-async fn run_full_pipeline(
+async fn run_modular_pipeline(
     sessions: &RwLock<HashMap<String, Session>>,
     session_id: &str,
     node_id: &str,
     image_b64: &str,
     prompt: &str,
     original_size: (u32, u32),
+    modules: &PipelineModules,
+    references: &[ReferenceImage],
 ) -> Result<(Vec<u8>, String), String> {
-    let total = 4u32;
+    let needs_scene = modules.background || modules.effects;
+    let needs_bg = modules.background;
+    let needs_retouch = modules.retouch || modules.background;
+    let needs_effects = modules.effects;
 
-    // Step 1: Detect scene type
-    update_node(sessions, session_id, node_id, |node| {
-        node.progress_step = 1;
-        node.progress_total = total;
-        node.progress_msg = "正在分析场景...".to_string();
-    });
-    let scene = gemini_client::detect_scene_type(image_b64, prompt).await?;
+    let total = needs_scene as u32 + needs_bg as u32 + needs_retouch as u32 + needs_effects as u32;
+    let mut step = 0u32;
 
-    let scene_clone = scene.clone();
-    update_node(sessions, session_id, node_id, |node| {
-        node.metadata
-            .insert("scene_info".to_string(), scene_clone);
-    });
+    let mut scene = serde_json::json!({});
+    let mut bg_suggestion = String::new();
+    let mut result_bytes: Vec<u8> = Vec::new();
+    let mut note = String::new();
 
-    // Step 2: Analyze background
-    update_node(sessions, session_id, node_id, |node| {
-        node.progress_step = 2;
-        node.progress_total = total;
-        node.progress_msg = "正在分析背景...".to_string();
-    });
-    let bg_suggestion =
-        gemini_client::analyze_background(image_b64, &scene, prompt, "").await?;
-
-    let bg_clone = bg_suggestion.clone();
-    update_node(sessions, session_id, node_id, |node| {
-        node.metadata.insert(
-            "bg_suggestion".to_string(),
-            serde_json::Value::String(bg_clone),
-        );
-    });
-
-    // Step 3: Retouch image
-    update_node(sessions, session_id, node_id, |node| {
-        node.progress_step = 3;
-        node.progress_total = total;
-        node.progress_msg = "正在修图...".to_string();
-    });
-    let (mut result_bytes, mut note) =
-        gemini_client::retouch_image(image_b64, prompt, &bg_suggestion).await?;
-
-    // Step 4: Optional cosplay effect
-    let is_cosplay = scene
-        .get("is_cosplay")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    if is_cosplay {
+    // Step: Detect scene type
+    if needs_scene {
+        step += 1;
         update_node(sessions, session_id, node_id, |node| {
-            node.progress_step = 4;
+            node.progress_step = step;
+            node.progress_total = total;
+            node.progress_msg = "正在分析场景...".to_string();
+        });
+        scene = gemini_client::detect_scene_type(image_b64, prompt, references).await?;
+
+        let scene_clone = scene.clone();
+        update_node(sessions, session_id, node_id, |node| {
+            node.metadata
+                .insert("scene_info".to_string(), scene_clone);
+        });
+    }
+
+    // Step: Analyze background
+    if needs_bg {
+        step += 1;
+        update_node(sessions, session_id, node_id, |node| {
+            node.progress_step = step;
+            node.progress_total = total;
+            node.progress_msg = "正在分析背景...".to_string();
+        });
+        bg_suggestion =
+            gemini_client::analyze_background(image_b64, &scene, prompt, "", references).await?;
+
+        let bg_clone = bg_suggestion.clone();
+        update_node(sessions, session_id, node_id, |node| {
+            node.metadata.insert(
+                "bg_suggestion".to_string(),
+                serde_json::Value::String(bg_clone),
+            );
+        });
+    }
+
+    // Step: Retouch image
+    if needs_retouch {
+        step += 1;
+        update_node(sessions, session_id, node_id, |node| {
+            node.progress_step = step;
+            node.progress_total = total;
+            node.progress_msg = "正在修图...".to_string();
+        });
+        // When only background is selected (no retouch), don't pass the user prompt as retouch instruction
+        let retouch_prompt = if modules.retouch { prompt } else { "" };
+        let (bytes, retouch_note) =
+            gemini_client::retouch_image(image_b64, retouch_prompt, &bg_suggestion, references).await?;
+        result_bytes = bytes;
+        note = retouch_note;
+    }
+
+    // Step: Apply effects
+    if needs_effects {
+        step += 1;
+        update_node(sessions, session_id, node_id, |node| {
+            node.progress_step = step;
             node.progress_total = total;
             node.progress_msg = "正在添加特效...".to_string();
         });
 
-        // Re-encode result for effect step
-        let effect_img = image_utils::load_image_from_bytes(&result_bytes)?;
-        let effect_img = image_utils::resize_to_original(&effect_img, original_size);
-        let effect_bytes = image_utils::image_to_jpeg_bytes(&effect_img, 90)?;
-        let effect_b64 = image_utils::bytes_to_base64(&effect_bytes);
+        // Use retouch result if available, otherwise use original image
+        let effect_b64 = if !result_bytes.is_empty() {
+            let effect_img = image_utils::load_image_from_bytes(&result_bytes)?;
+            let effect_img = image_utils::resize_to_original(&effect_img, original_size);
+            let effect_bytes = image_utils::image_to_jpeg_bytes(&effect_img, 90)?;
+            image_utils::bytes_to_base64(&effect_bytes)
+        } else {
+            image_b64.to_string()
+        };
 
-        match gemini_client::apply_cosplay_effect(&effect_b64, "", prompt).await {
+        match gemini_client::apply_cosplay_effect(&effect_b64, "", prompt, references).await {
             Ok((effect_result, effect_note)) => {
                 result_bytes = effect_result;
-                note = format!("{note}\n{effect_note}");
+                if note.is_empty() {
+                    note = effect_note;
+                } else {
+                    note = format!("{note}\n{effect_note}");
+                }
             }
             Err(e) => {
-                note = format!("{note}\n特效跳过: {e}");
+                if note.is_empty() {
+                    note = format!("特效失败: {e}");
+                } else {
+                    note = format!("{note}\n特效跳过: {e}");
+                }
             }
+        }
+    }
+
+    // If no steps produced an image, return original
+    if result_bytes.is_empty() {
+        result_bytes = image_utils::base64_to_bytes(image_b64)?;
+        if note.is_empty() {
+            note = "未执行任何处理步骤".to_string();
         }
     }
 
     update_node(sessions, session_id, node_id, |node| {
         node.progress_step = total;
-        node.progress_total = total;
-        node.progress_msg = "保存结果...".to_string();
-    });
-
-    Ok((result_bytes, note))
-}
-
-async fn run_light_pipeline(
-    sessions: &RwLock<HashMap<String, Session>>,
-    session_id: &str,
-    node_id: &str,
-    image_b64: &str,
-    prompt: &str,
-) -> Result<(Vec<u8>, String), String> {
-    let total = 2u32;
-
-    // Step 1: Retouch
-    update_node(sessions, session_id, node_id, |node| {
-        node.progress_step = 1;
-        node.progress_total = total;
-        node.progress_msg = "正在修图...".to_string();
-    });
-    let (result_bytes, note) = gemini_client::retouch_image(image_b64, prompt, "").await?;
-
-    // Step 2: Save
-    update_node(sessions, session_id, node_id, |node| {
-        node.progress_step = 2;
         node.progress_total = total;
         node.progress_msg = "保存结果...".to_string();
     });

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui-org/nicegui/main/nicegui/static/tauri.conf.schema.json",
   "productName": "CosKit",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "identifier": "com.coskit.desktop",
   "build": {
     "frontendDist": "../src"
