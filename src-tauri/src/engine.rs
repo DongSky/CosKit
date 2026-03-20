@@ -6,7 +6,9 @@ use std::sync::{Arc, RwLock};
 use crate::gemini_client;
 use crate::image_utils;
 use crate::models::{EditNode, PipelineModules, ReferenceImage, Session};
+use crate::planner;
 use crate::settings;
+use crate::workflow;
 
 // ---------------------------------------------------------------------------
 // App state
@@ -206,6 +208,31 @@ pub fn submit_edit(
     let mut node = EditNode::new(nid.clone(), Some(parent_node_id.to_string()));
     node.prompt = prompt.to_string();
 
+    // Store reference image thumbnails in metadata for frontend display
+    if !reference_images.is_empty() {
+        let ref_thumbs: Vec<serde_json::Value> = reference_images
+            .iter()
+            .filter_map(|r| {
+                let bytes = image_utils::base64_to_bytes(&r.data).ok()?;
+                let img = image_utils::load_image_from_bytes(&bytes).ok()?;
+                let thumb = image_utils::resize_max_dimension(&img, 128);
+                let thumb_bytes = image_utils::image_to_jpeg_bytes(&thumb, 75).ok()?;
+                let data_url = format!(
+                    "data:image/jpeg;base64,{}",
+                    image_utils::bytes_to_base64(&thumb_bytes)
+                );
+                Some(serde_json::json!({
+                    "data_url": data_url,
+                    "description": r.description,
+                }))
+            })
+            .collect();
+        node.metadata.insert(
+            "reference_images".to_string(),
+            serde_json::Value::Array(ref_thumbs),
+        );
+    }
+
     session.nodes.insert(nid.clone(), node.clone());
 
     // Add child to parent
@@ -250,7 +277,7 @@ pub fn submit_edit(
 }
 
 /// Helper to update a node in the sessions map.
-fn update_node(
+pub fn update_node(
     sessions: &RwLock<HashMap<String, Session>>,
     session_id: &str,
     node_id: &str,
@@ -266,7 +293,7 @@ fn update_node(
 }
 
 /// Helper to save session from the sessions map.
-fn save_session_from_map(sessions: &RwLock<HashMap<String, Session>>, session_id: &str) {
+pub fn save_session_from_map(sessions: &RwLock<HashMap<String, Session>>, session_id: &str) {
     if let Ok(lock) = sessions.read() {
         if let Some(session) = lock.get(session_id) {
             save_session(session);
@@ -334,17 +361,46 @@ async fn run_edit_pipeline(
     };
     let image_b64 = image_utils::bytes_to_base64(&img_bytes);
 
-    let result = run_modular_pipeline(
-        &sessions,
-        &session_id,
-        &node_id,
-        &image_b64,
-        &prompt,
-        original_size,
-        &modules,
-        &references,
-    )
-    .await;
+    eprintln!("[CosKit] pipeline: prompt={}", prompt);
+
+    let result = if modules.agent_mode {
+        eprintln!("[CosKit] pipeline: entering agent mode");
+        // Agent-driven workflow
+        update_node(&sessions, &session_id, &node_id, |node| {
+            node.progress_msg = "正在规划工作流...".to_string();
+        });
+
+        match planner::plan_workflow(&image_b64, &prompt, &references).await {
+            Ok(plan) => {
+                workflow::execute_workflow(
+                    &sessions,
+                    &session_id,
+                    &node_id,
+                    &image_b64,
+                    original_size,
+                    &plan,
+                    &references,
+                )
+                .await
+            }
+            Err(e) => Err(format!("规划失败: {e}")),
+        }
+    } else {
+        eprintln!("[CosKit] pipeline: entering legacy mode (retouch={}, bg={}, fx={})",
+            modules.retouch, modules.background, modules.effects);
+        // Legacy modular pipeline
+        run_modular_pipeline(
+            &sessions,
+            &session_id,
+            &node_id,
+            &image_b64,
+            &prompt,
+            original_size,
+            &modules,
+            &references,
+        )
+        .await
+    };
 
     match result {
         Ok((result_bytes, note)) => {

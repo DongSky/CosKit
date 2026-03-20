@@ -133,6 +133,8 @@ pub struct PipelineModules {
     pub background: bool,
     #[serde(default)]
     pub effects: bool,
+    #[serde(default = "default_true")]
+    pub agent_mode: bool,
 }
 
 fn default_true() -> bool {
@@ -145,6 +147,7 @@ impl Default for PipelineModules {
             retouch: true,
             background: false,
             effects: false,
+            agent_mode: true,
         }
     }
 }

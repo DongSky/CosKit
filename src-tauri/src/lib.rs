@@ -4,7 +4,10 @@ pub mod engine;
 pub mod gemini_client;
 pub mod image_utils;
 pub mod models;
+pub mod planner;
 pub mod settings;
+pub mod skills;
+pub mod workflow;
 
 use engine::AppState;
 use gemini_client::GeminiClients;
@@ -36,6 +39,8 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::get_default_settings,
+            commands::get_workflow_status,
+            commands::list_skills,
         ])
         .run(tauri::generate_context!())
         .expect("error running CosKit");
