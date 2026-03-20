@@ -189,6 +189,37 @@ body {
   line-height: 1.5;
 }
 
+.bubble-refs {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.bubble-ref {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 80px;
+}
+
+.bubble-ref img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.bubble-ref-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  word-break: break-all;
+  line-height: 1.3;
+}
+
 /* Bot (CosKit) message */
 .msg-bot {
   align-self: flex-start;
@@ -1014,4 +1045,135 @@ body {
   color: var(--text-muted);
   font-style: italic;
   margin-top: 8px;
+}
+
+/* ── Agent mode & workflow progress ───────────────────── */
+
+.agent-toggle.active {
+  background: #e67e22;
+  border-color: #e67e22;
+  color: #fff;
+}
+
+.agent-toggle.active:hover {
+  background: #d35400;
+  border-color: #d35400;
+}
+
+.legacy-toggle.dimmed {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.workflow-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.wf-reasoning {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+}
+
+.wf-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wf-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.wf-step-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.wf-step-name {
+  color: var(--text-secondary);
+  min-width: 60px;
+}
+
+.wf-step-prompt {
+  color: var(--text-muted);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wf-step-pending .wf-step-icon { color: var(--text-muted); }
+.wf-step-running .wf-step-icon { color: var(--accent); }
+.wf-step-done .wf-step-icon { color: var(--success); }
+.wf-step-error .wf-step-icon { color: var(--error); }
+
+.wf-step-running {
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.wf-step-done {
+  opacity: 0.7;
+}
+
+.wf-step-error .wf-step-prompt {
+  color: var(--error);
+}
+
+/* ── Collapsible workflow details ─────────────────────── */
+
+.wf-details {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.wf-details summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+  user-select: none;
+  list-style: none;
+}
+
+.wf-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.wf-details summary::before {
+  content: "▶ ";
+  font-size: 10px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+.wf-details[open] summary::before {
+  content: "▼ ";
+}
+
+.wf-details[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.wf-details > .wf-reasoning,
+.wf-details > .wf-steps,
+.wf-details > .workflow-progress {
+  padding: 8px 12px;
 }

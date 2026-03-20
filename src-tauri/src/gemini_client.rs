@@ -39,7 +39,7 @@ fn clients_lock() -> &'static RwLock<Option<GeminiClients>> {
 }
 
 /// Get a clone of the current clients (drops the lock immediately).
-fn get_clients() -> Result<GeminiClients, String> {
+pub fn get_clients() -> Result<GeminiClients, String> {
     let lock = clients_lock().read().map_err(|e| e.to_string())?;
     lock.as_ref()
         .cloned()
@@ -285,7 +285,7 @@ async fn call_with_retry(
 }
 
 /// Extract text from Gemini API response.
-fn extract_text(response: &Value) -> String {
+pub fn extract_text(response: &Value) -> String {
     if let Some(candidates) = response.get("candidates").and_then(|v| v.as_array()) {
         for c in candidates {
             if let Some(parts) = c
@@ -308,7 +308,7 @@ fn extract_text(response: &Value) -> String {
 }
 
 /// Extract image bytes from Gemini API response (inline_data).
-fn extract_image_bytes(response: &Value) -> Option<Vec<u8>> {
+pub fn extract_image_bytes(response: &Value) -> Option<Vec<u8>> {
     if let Some(candidates) = response.get("candidates").and_then(|v| v.as_array()) {
         for c in candidates {
             if let Some(parts) = c
@@ -335,7 +335,7 @@ fn extract_image_bytes(response: &Value) -> Option<Vec<u8>> {
 }
 
 /// Parse JSON from text, stripping markdown code blocks if present.
-fn parse_json(text: &str) -> Result<Value, String> {
+pub fn parse_json(text: &str) -> Result<Value, String> {
     let mut text = text.trim();
     if text.starts_with("```") {
         text = text
@@ -365,7 +365,7 @@ fn build_text_and_image_contents(text: &str, image_b64: &str) -> Value {
 }
 
 /// Build contents with the source image and optional reference images interleaved.
-fn build_contents_with_references(
+pub fn build_contents_with_references(
     text: &str,
     image_b64: &str,
     references: &[ReferenceImage],
@@ -412,14 +412,14 @@ fn reference_images_hint(references: &[ReferenceImage]) -> String {
     hint
 }
 
-fn text_config(temperature: f64) -> Value {
+pub fn text_config(temperature: f64) -> Value {
     json!({
         "temperature": temperature,
         "responseModalities": ["TEXT"]
     })
 }
 
-fn image_config(temperature: f64) -> Value {
+pub fn image_config(temperature: f64) -> Value {
     json!({
         "temperature": temperature,
         "responseModalities": ["TEXT", "IMAGE"]
@@ -706,4 +706,56 @@ pub async fn apply_cosplay_effect(
         extract_image_bytes(&resp).ok_or("no image returned in cosplay effect step")?;
 
     Ok((img_bytes, "已添加轻度氛围特效".to_string()))
+}
+
+// ---------------------------------------------------------------------------
+// Generic model call functions (used by planner & workflow)
+// ---------------------------------------------------------------------------
+
+/// Generic image model call — sends image + prompt, returns result image bytes.
+pub async fn call_image_generation(
+    image_b64: &str,
+    prompt: &str,
+    references: &[ReferenceImage],
+    temperature: f64,
+) -> Result<Vec<u8>, String> {
+    let clients = get_clients()?;
+    let contents = build_contents_with_references(prompt, image_b64, references);
+    let config = image_config(temperature);
+
+    let resp = call_with_retry(
+        &clients.image_client,
+        &clients.image_url,
+        &clients.image_api_key,
+        contents,
+        config,
+        5,
+    )
+    .await?;
+
+    extract_image_bytes(&resp).ok_or_else(|| "模型未返回图片".to_string())
+}
+
+/// Generic text model call — sends image + prompt, returns raw JSON response.
+pub async fn call_text_generation(
+    image_b64: &str,
+    prompt: &str,
+    references: &[ReferenceImage],
+    temperature: f64,
+) -> Result<Value, String> {
+    let clients = get_clients()?;
+    let contents = build_contents_with_references(prompt, image_b64, references);
+    let config = text_config(temperature);
+
+    let resp = call_with_retry(
+        &clients.text_client,
+        &clients.text_url,
+        &clients.text_api_key,
+        contents,
+        config,
+        5,
+    )
+    .await?;
+
+    Ok(resp)
 }

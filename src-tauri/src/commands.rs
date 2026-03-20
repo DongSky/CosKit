@@ -173,6 +173,14 @@ pub async fn get_node_status(
             .unwrap_or(Value::Null);
     }
 
+    // Include workflow data if present
+    if let Some(wp) = node.metadata.get("workflow_plan") {
+        result["workflow_plan"] = wp.clone();
+    }
+    if let Some(ws) = node.metadata.get("workflow_status") {
+        result["workflow_status"] = ws.clone();
+    }
+
     Ok(result)
 }
 
@@ -310,4 +318,36 @@ pub async fn get_default_settings() -> Result<Value, String> {
         "settings": defaults,
         "prompts": prompts,
     }))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_workflow_status(
+    state: State<'_, AppState>,
+    session_id: String,
+    node_id: String,
+) -> Result<Value, String> {
+    let sessions = state.sessions.read().map_err(|e| e.to_string())?;
+    let session = sessions.get(&session_id).ok_or("session not found")?;
+    let node = session.nodes.get(&node_id).ok_or("node not found")?;
+
+    Ok(json!({
+        "workflow_plan": node.metadata.get("workflow_plan"),
+        "workflow_status": node.metadata.get("workflow_status"),
+    }))
+}
+
+#[tauri::command]
+pub async fn list_skills() -> Result<Value, String> {
+    let skills: Vec<Value> = crate::skills::builtin_skills()
+        .into_iter()
+        .map(|s| {
+            json!({
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "category": s.category,
+            })
+        })
+        .collect();
+    Ok(Value::Array(skills))
 }

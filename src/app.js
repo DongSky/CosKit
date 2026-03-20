@@ -64,6 +64,8 @@
     get_settings: [],
     save_settings: ["settings_val"],
     get_default_settings: [],
+    get_workflow_status: ["session_id", "node_id"],
+    list_skills: [],
   };
 
   function _buildArgs(method, args) {
@@ -156,7 +158,7 @@
         renderBotCard(node, null, i === active_path.length - 1);
       } else {
         // User prompt bubble
-        renderUserBubble(node.prompt);
+        renderUserBubble(node);
         // Bot response card
         const parentId = node.parent_id;
         const parent = nodes[parentId];
@@ -171,10 +173,36 @@
     chatArea.scrollTop = chatArea.scrollHeight;
   }
 
-  function renderUserBubble(text) {
+  function renderUserBubble(node) {
     const div = document.createElement("div");
     div.className = "msg msg-user";
-    div.innerHTML = `<div class="bubble">${escapeHtml(text)}</div>`;
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.innerHTML = escapeHtml(node.prompt);
+
+    const refs = node.metadata && node.metadata.reference_images;
+    if (refs && refs.length > 0) {
+      const refsDiv = document.createElement("div");
+      refsDiv.className = "bubble-refs";
+      for (const refImg of refs) {
+        const item = document.createElement("div");
+        item.className = "bubble-ref";
+        const img = document.createElement("img");
+        img.src = refImg.data_url;
+        img.alt = refImg.description || "参考图";
+        item.appendChild(img);
+        if (refImg.description) {
+          const desc = document.createElement("span");
+          desc.className = "bubble-ref-desc";
+          desc.textContent = refImg.description;
+          item.appendChild(desc);
+        }
+        refsDiv.appendChild(item);
+      }
+      bubble.appendChild(refsDiv);
+    }
+
+    div.appendChild(bubble);
     messagesEl.appendChild(div);
   }
 
@@ -255,6 +283,52 @@
         noteEl.className = "card-note";
         noteEl.textContent = node.note;
         body.appendChild(noteEl);
+      }
+
+      // Collapsible workflow plan (done state)
+      if (node.metadata && node.metadata.workflow_plan) {
+        const plan = node.metadata.workflow_plan;
+        const wfStatus = (node.metadata.workflow_status) || {};
+        const stepCount = plan.nodes ? plan.nodes.length : 0;
+
+        const details = document.createElement("details");
+        details.className = "wf-details";
+
+        const summary = document.createElement("summary");
+        summary.textContent = `智能规划 · ${stepCount} 步骤`;
+        details.appendChild(summary);
+
+        if (plan.reasoning) {
+          const reasonEl = document.createElement("div");
+          reasonEl.className = "wf-reasoning";
+          reasonEl.textContent = plan.reasoning;
+          details.appendChild(reasonEl);
+        }
+
+        if (plan.nodes && plan.nodes.length > 0) {
+          const stepsEl = document.createElement("div");
+          stepsEl.className = "wf-steps";
+          for (const pn of plan.nodes) {
+            const st = wfStatus[pn.node_id] || {};
+            const stepStatus = st.status || "done";
+            const skillName = st.skill_name || pn.skill_id;
+            const prompt = st.skill_prompt || pn.skill_prompt || "";
+            const icons = { done: "✓", error: "✗", pending: "○", running: "◉" };
+            const icon = icons[stepStatus] || "✓";
+            const errorMsg = st.error ? ` — ${st.error}` : "";
+
+            const stepEl = document.createElement("div");
+            stepEl.className = `wf-step wf-step-${stepStatus}`;
+            stepEl.innerHTML =
+              `<span class="wf-step-icon">${icon}</span>` +
+              `<span class="wf-step-name">${escapeHtml(skillName)}</span>` +
+              `<span class="wf-step-prompt">${escapeHtml(prompt)}${escapeHtml(errorMsg)}</span>`;
+            stepsEl.appendChild(stepEl);
+          }
+          details.appendChild(stepsEl);
+        }
+
+        body.appendChild(details);
       }
 
       // Make non-last nodes clickable for "continue from here"
@@ -412,10 +486,12 @@
     }
 
     // Read module toggles
+    const agentMode = !!document.querySelector('.module-toggle[data-module="agent_mode"].active');
     const modules = {
       retouch: !!document.querySelector('.module-toggle[data-module="retouch"].active'),
       background: !!document.querySelector('.module-toggle[data-module="background"].active'),
       effects: !!document.querySelector('.module-toggle[data-module="effects"].active'),
+      agent_mode: agentMode,
     };
 
     // Collect reference images
@@ -441,6 +517,64 @@
     btnSend.disabled = false;
   }
 
+  // ── Workflow progress rendering ──────────────────────
+  function renderWorkflowProgress(status) {
+    const wfStatus = status.workflow_status || {};
+    const wfPlan = status.workflow_plan;
+    const reasoning = wfPlan ? wfPlan.reasoning : "";
+
+    const statusIcons = {
+      pending: "○",
+      running: "◉",
+      done: "✓",
+      error: "✗",
+    };
+
+    let html = '<details class="wf-details" open>';
+    html += `<summary>智能规划 · ${nodes.length} 步骤</summary>`;
+    html += '<div class="workflow-progress">';
+    if (reasoning) {
+      html += `<div class="wf-reasoning">${escapeHtml(reasoning)}</div>`;
+    }
+    html += '<div class="wf-steps">';
+
+    // Use plan node order if available
+    const nodes = wfPlan ? wfPlan.nodes : [];
+    if (nodes.length > 0) {
+      for (const node of nodes) {
+        const st = wfStatus[node.node_id] || {};
+        const stepStatus = st.status || "pending";
+        const skillName = st.skill_name || node.skill_id;
+        const prompt = st.skill_prompt || node.skill_prompt || "";
+        const icon = statusIcons[stepStatus] || "○";
+        const errorMsg = st.error ? ` — ${st.error}` : "";
+
+        html += `<div class="wf-step wf-step-${stepStatus}">`;
+        html += `<span class="wf-step-icon">${stepStatus === "running" ? '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;"></span>' : icon}</span>`;
+        html += `<span class="wf-step-name">${escapeHtml(skillName)}</span>`;
+        html += `<span class="wf-step-prompt">${escapeHtml(prompt)}${escapeHtml(errorMsg)}</span>`;
+        html += `</div>`;
+      }
+    } else {
+      // Fallback: iterate wfStatus keys
+      for (const [nodeId, st] of Object.entries(wfStatus)) {
+        const stepStatus = st.status || "pending";
+        const skillName = st.skill_name || nodeId;
+        const prompt = st.skill_prompt || "";
+        const icon = statusIcons[stepStatus] || "○";
+
+        html += `<div class="wf-step wf-step-${stepStatus}">`;
+        html += `<span class="wf-step-icon">${icon}</span>`;
+        html += `<span class="wf-step-name">${escapeHtml(skillName)}</span>`;
+        html += `<span class="wf-step-prompt">${escapeHtml(prompt)}</span>`;
+        html += `</div>`;
+      }
+    }
+
+    html += "</div></div></details>";
+    return html;
+  }
+
   // ── Polling ────────────────────────────────────────────
   function startPolling(nodeId) {
     if (pollingTimers[nodeId]) return;
@@ -452,11 +586,15 @@
       if (status.status === "processing") {
         const el = document.getElementById(`processing-${nodeId}`);
         if (el) {
-          const msg =
-            status.progress_total > 0
-              ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
-              : status.progress_msg || "处理中...";
-          el.querySelector("span").textContent = msg;
+          if (status.workflow_status) {
+            el.innerHTML = renderWorkflowProgress(status);
+          } else {
+            const msg =
+              status.progress_total > 0
+                ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
+                : status.progress_msg || "处理中...";
+            el.innerHTML = `<div class="spinner"></div><span>${escapeHtml(msg)}</span>`;
+          }
         }
       } else if (status.status === "done" || status.status === "error") {
         stopPolling(nodeId);
@@ -783,10 +921,35 @@
   });
 
   // Module toggle buttons
+  function updateLegacyToggleDimming() {
+    const agentActive = document.querySelector('.module-toggle[data-module="agent_mode"]').classList.contains("active");
+    document.querySelectorAll(".legacy-toggle").forEach((btn) => {
+      if (agentActive) {
+        btn.classList.add("dimmed");
+      } else {
+        btn.classList.remove("dimmed");
+      }
+    });
+  }
+
   document.querySelectorAll(".module-toggle").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const activeToggles = document.querySelectorAll(".module-toggle.active");
-      // Prevent deactivating the last active toggle
+      if (btn.dataset.module === "agent_mode") {
+        btn.classList.toggle("active");
+        updateLegacyToggleDimming();
+        // When turning off agent mode, ensure at least retouch is active
+        if (!btn.classList.contains("active")) {
+          const anyLegacyActive = document.querySelector(".legacy-toggle.active");
+          if (!anyLegacyActive) {
+            document.querySelector('.module-toggle[data-module="retouch"]').classList.add("active");
+          }
+        }
+        return;
+      }
+      // Legacy toggles: only work when agent mode is off
+      const agentActive = document.querySelector('.module-toggle[data-module="agent_mode"]').classList.contains("active");
+      if (agentActive) return;
+      const activeToggles = document.querySelectorAll(".legacy-toggle.active");
       if (btn.classList.contains("active") && activeToggles.length <= 1) return;
       btn.classList.toggle("active");
     });
