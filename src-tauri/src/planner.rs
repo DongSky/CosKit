@@ -57,6 +57,17 @@ pub async fn plan_workflow(
 
 {catalog}
 
+## 专业修图流程参考
+
+完整流程（按阶段依序，各阶段内有顺序依赖，跨阶段可并行）：
+1. 调色阶段：影调调整(tone_adjust) → 色彩风格化(color_style) → 细节增强(detail_enhance)
+2. 人像阶段：磨皮美肤(skin_smooth) → 美白提亮(skin_whiten) → 人脸调整(face_adjust) → 身材调整(body_reshape)
+3. 背景阶段：背景替换(bg_replace) → 光线调整(lighting_adjust)
+4. 特效阶段：特效添加(special_fx)
+
+简易流程（需求简单时优先考虑，2-3步即可）：
+影调调整(tone_adjust) → 色彩风格化(color_style) → 磨皮美肤(skin_smooth)/美白提亮(skin_whiten) → 人脸调整(face_adjust)/身材调整(body_reshape) → 背景替换(bg_replace)/特效添加(special_fx)
+
 ## 规划规则
 1. 根据用户需求选择合适的技能（skill），可以选择 1~5 个步骤
 2. 每个步骤必须使用上述技能列表中的 skill_id
@@ -65,6 +76,13 @@ pub async fn plan_workflow(
 5. 没有依赖关系的步骤可以并行执行
 6. 如果用户需求简单，1-2 个步骤即可，不要过度规划
 7. node_id 使用 "step_1", "step_2" 等格式
+
+## 规划原则
+- 简单需求（如"修一下""美化一下"）→ 走简易流程，2-3步
+- 具体需求（如"换背景+加特效+调色"）→ 按完整流程中相关部分规划
+- cosplay 摄影 → 优先考虑 bg_replace + special_fx + color_style 的组合
+- 同阶段内的步骤有顺序依赖（如先 tone_adjust 再 detail_enhance），请设置 depends_on
+- 不同阶段的步骤可以并行（如调色和人像可同时进行）
 
 ## 输出格式
 严格输出以下 JSON 格式，不要输出其他内容：
