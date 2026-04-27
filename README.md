@@ -1,15 +1,19 @@
 # CosKit
 
-AI 驱动的人像修图桌面应用，基于 Gemini API 实现智能修图、背景替换和 Cosplay 特效。
+AI 驱动的人像修图桌面应用，支持 **Gemini** 和 **OpenAI (GPT)** 双模型后端，实现智能修图、背景替换和 Cosplay 特效。
 
 ## 功能
 
 - **智能修图**：上传照片，输入自然语言指令，AI 自动完成美颜、磨皮、光线优化
 - **背景替换**：自动分析场景并推荐匹配背景，保持透视一致性
 - **Cosplay 特效**：识别 Cosplay 摄影，自动添加轻度氛围光效和粒子效果
+- **多模型支持**：文本模型和图像模型可独立切换 Gemini / OpenAI 提供商
+  - Gemini：`gemini-3.1-pro-preview`（文本）、`gemini-3.1-pro-image-preview`（图像）
+  - OpenAI：`gpt-5.5`（文本）、`gpt-image-2`（图像）
+- **Provider 配置记忆**：切换提供商时自动保存/恢复各自的 API 参数
 - **分支编辑**：基于任意历史节点创建新分支，支持树状编辑历史
 - **会话管理**：多会话支持，自动保存，随时切换
-- **图片导出**：原始分辨率导出，原生系统保存对话框
+- **图片导出**：保持原始分辨率导出，原生系统保存对话框
 
 ## 下载
 
@@ -34,20 +38,33 @@ sudo xattr -r -d com.apple.quarantine /Applications/CosKit.app
 
 ## 配置
 
-CosKit 需要 Gemini API Key 才能使用。有两种配置方式：
+CosKit 支持 **Gemini** 和 **OpenAI** 双提供商，需配置对应 API Key。
 
-### 方式一：应用内设置
+### 方式一：应用内设置（推荐）
 
-点击右上角 ⚙ 设置按钮 → API 配置 → 填写 API Key 和 Base URL → 保存。
+点击右上角 ⚙ 设置按钮 → API 配置：
+- 选择文本模型提供商（Gemini / OpenAI）
+- 选择图像模型提供商（Gemini / OpenAI）
+- 填写对应的 API Key、Base URL、模型名称
+- 保存后自动生效
+
+**提示**：切换提供商时，应用会自动保存当前配置并恢复目标提供商的历史配置。
 
 ### 方式二：.env 文件
 
 在应用同级目录下创建 `.env` 文件：
 
 ```env
-GEMINI_API_KEY=your_api_key_here
-GEMINI_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3.1-pro-preview:generateContent
-GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3.1-pro-image-preview:generateContent
+# Gemini 配置
+GEMINI_API_KEY=your_gemini_key
+GEMINI_BASE_URL=https://your-proxy/v1beta/models/gemini-3.1-pro-preview:generateContent
+GEMINI_IMAGE_BASE_URL=https://your-proxy/v1beta/models/gemini-3.1-pro-image-preview:generateContent
+
+# OpenAI 配置
+OPENAI_API_KEY=your_openai_key
+OPENAI_BASE_URL=https://yunwu.ai/v1
+OPENAI_MODEL=gpt-5.5
+OPENAI_IMAGE_MODEL=gpt-image-2
 ```
 
 > 应用内设置优先级高于 .env 文件。
@@ -88,7 +105,7 @@ build_win.bat
 
 - **后端**：Rust + Tauri v2
 - **前端**：原生 HTML/CSS/JS（无框架）
-- **AI**：Gemini API（文本模型 + 图像模型）
+- **AI**：Gemini API + OpenAI API（文本模型 + 图像模型）
 - **图像处理**：image-rs
 - **HTTP 客户端**：reqwest + tokio
 
