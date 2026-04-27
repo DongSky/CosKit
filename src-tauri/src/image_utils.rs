@@ -32,7 +32,31 @@ pub fn image_to_base64_url(path: &str) -> Result<String, String> {
 
 /// Load a DynamicImage from raw bytes.
 pub fn load_image_from_bytes(data: &[u8]) -> Result<DynamicImage, String> {
-    image::load_from_memory(data).map_err(|e| format!("failed to load image: {e}"))
+    let mut img = image::load_from_memory(data).map_err(|e| format!("failed to load image: {e}"))?;
+
+    // Apply EXIF orientation if present
+    if let Some(orientation) = read_exif_orientation(data) {
+        img = match orientation {
+            2 => img.fliph(),
+            3 => img.rotate180(),
+            4 => img.flipv(),
+            5 => img.rotate90().fliph(),
+            6 => img.rotate90(),
+            7 => img.rotate270().fliph(),
+            8 => img.rotate270(),
+            _ => img,
+        };
+    }
+
+    Ok(img)
+}
+
+fn read_exif_orientation(data: &[u8]) -> Option<u32> {
+    let exif = exif::Reader::new()
+        .read_from_container(&mut std::io::Cursor::new(data))
+        .ok()?;
+    let field = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
+    field.value.get_uint(0)
 }
 
 /// Resize image back to original dimensions if different.
