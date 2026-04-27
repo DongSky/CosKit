@@ -122,6 +122,16 @@ pub fn load_settings() -> Settings {
         Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
             Ok(saved) => {
                 let mut settings = defaults;
+                if let Some(v) = saved.get("text_provider").and_then(|v| v.as_str()) {
+                    if !v.is_empty() {
+                        settings.text_provider = v.to_string();
+                    }
+                }
+                if let Some(v) = saved.get("image_provider").and_then(|v| v.as_str()) {
+                    if !v.is_empty() {
+                        settings.image_provider = v.to_string();
+                    }
+                }
                 if let Some(v) = saved.get("text_base_url").and_then(|v| v.as_str()) {
                     settings.text_base_url = v.to_string();
                 }
@@ -155,6 +165,11 @@ pub fn load_settings() -> Settings {
                         if let Some(s) = v.as_str() {
                             settings.prompts.insert(k.clone(), s.to_string());
                         }
+                    }
+                }
+                if let Some(pc) = saved.get("provider_configs") {
+                    if let Ok(configs) = serde_json::from_value(pc.clone()) {
+                        settings.provider_configs = configs;
                     }
                 }
                 settings

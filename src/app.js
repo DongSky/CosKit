@@ -660,6 +660,8 @@
   // ── Settings ───────────────────────────────────────────
 
   // Prompt key → textarea element id mapping
+  let settingsProviderConfigs = {};
+
   const PROMPT_FIELDS = {
     detect_scene_type: "s-prompt-detect",
     analyze_background: "s-prompt-bg",
@@ -669,11 +671,19 @@
 
   async function openSettings() {
     const settings = await api().get_settings();
+    // Store provider_configs for switch memory
+    settingsProviderConfigs = settings.provider_configs || {};
     // Populate API fields
+    const textProvider = settings.text_provider || "gemini";
+    const imageProvider = settings.image_provider || "gemini";
+    document.getElementById("s-text-provider").value = textProvider;
+    document.getElementById("s-text-provider").dataset.prev = textProvider;
     document.getElementById("s-text-model").value = settings.text_model || "";
     document.getElementById("s-text-base-url").value = settings.text_base_url || "";
     document.getElementById("s-text-api-key").value = settings.text_api_key || "";
     document.getElementById("s-text-timeout").value = settings.text_timeout_ms || 180000;
+    document.getElementById("s-image-provider").value = imageProvider;
+    document.getElementById("s-image-provider").dataset.prev = imageProvider;
     document.getElementById("s-image-model").value = settings.image_model || "";
     document.getElementById("s-image-base-url").value = settings.image_base_url || "";
     document.getElementById("s-image-api-key").value = settings.image_api_key || "";
@@ -693,16 +703,38 @@
   }
 
   async function saveSettingsFromUI() {
+    const textProvider = document.getElementById("s-text-provider").value || "gemini";
+    const imageProvider = document.getElementById("s-image-provider").value || "gemini";
+
+    // Save current text provider config
+    const textKey = `text_${textProvider}`;
+    settingsProviderConfigs[textKey] = {
+      model: document.getElementById("s-text-model").value.trim(),
+      base_url: document.getElementById("s-text-base-url").value.trim(),
+      api_key: document.getElementById("s-text-api-key").value.trim(),
+    };
+
+    // Save current image provider config
+    const imageKey = `image_${imageProvider}`;
+    settingsProviderConfigs[imageKey] = {
+      model: document.getElementById("s-image-model").value.trim(),
+      base_url: document.getElementById("s-image-base-url").value.trim(),
+      api_key: document.getElementById("s-image-api-key").value.trim(),
+    };
+
     const settings = {
+      text_provider: textProvider,
       text_model: document.getElementById("s-text-model").value.trim(),
       text_base_url: document.getElementById("s-text-base-url").value.trim(),
       text_api_key: document.getElementById("s-text-api-key").value.trim(),
       text_timeout_ms: parseInt(document.getElementById("s-text-timeout").value, 10) || 180000,
+      image_provider: imageProvider,
       image_model: document.getElementById("s-image-model").value.trim(),
       image_base_url: document.getElementById("s-image-base-url").value.trim(),
       image_api_key: document.getElementById("s-image-api-key").value.trim(),
       image_timeout_ms: parseInt(document.getElementById("s-image-timeout").value, 10) || 300000,
       prompts: {},
+      provider_configs: settingsProviderConfigs,
     };
     for (const [key, elId] of Object.entries(PROMPT_FIELDS)) {
       settings.prompts[key] = document.getElementById(elId).value;
@@ -913,6 +945,43 @@
   // Tab switching
   document.querySelectorAll(".settings-tab").forEach((btn) => {
     btn.addEventListener("click", () => switchSettingsTab(btn.dataset.tab));
+  });
+
+  // Provider switch handlers
+  document.getElementById("s-text-provider").addEventListener("change", (e) => {
+    const oldProvider = e.target.dataset.prev || "gemini";
+    const newProvider = e.target.value;
+    // Save current config
+    const oldKey = `text_${oldProvider}`;
+    settingsProviderConfigs[oldKey] = {
+      model: document.getElementById("s-text-model").value.trim(),
+      base_url: document.getElementById("s-text-base-url").value.trim(),
+      api_key: document.getElementById("s-text-api-key").value.trim(),
+    };
+    // Load new config
+    const newKey = `text_${newProvider}`;
+    const cfg = settingsProviderConfigs[newKey] || {};
+    document.getElementById("s-text-model").value = cfg.model || "";
+    document.getElementById("s-text-base-url").value = cfg.base_url || "";
+    document.getElementById("s-text-api-key").value = cfg.api_key || "";
+    e.target.dataset.prev = newProvider;
+  });
+
+  document.getElementById("s-image-provider").addEventListener("change", (e) => {
+    const oldProvider = e.target.dataset.prev || "gemini";
+    const newProvider = e.target.value;
+    const oldKey = `image_${oldProvider}`;
+    settingsProviderConfigs[oldKey] = {
+      model: document.getElementById("s-image-model").value.trim(),
+      base_url: document.getElementById("s-image-base-url").value.trim(),
+      api_key: document.getElementById("s-image-api-key").value.trim(),
+    };
+    const newKey = `image_${newProvider}`;
+    const cfg = settingsProviderConfigs[newKey] || {};
+    document.getElementById("s-image-model").value = cfg.model || "";
+    document.getElementById("s-image-base-url").value = cfg.base_url || "";
+    document.getElementById("s-image-api-key").value = cfg.api_key || "";
+    e.target.dataset.prev = newProvider;
   });
 
   // Individual prompt reset buttons

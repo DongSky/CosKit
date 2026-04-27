@@ -524,7 +524,7 @@ async fn run_modular_pipeline(
         // When only background is selected (no retouch), don't pass the user prompt as retouch instruction
         let retouch_prompt = if modules.retouch { prompt } else { "" };
         let (bytes, retouch_note) =
-            gemini_client::retouch_image(image_b64, retouch_prompt, &bg_suggestion, references).await?;
+            gemini_client::retouch_image(image_b64, retouch_prompt, &bg_suggestion, references, Some(original_size)).await?;
         result_bytes = bytes;
         note = retouch_note;
     }
@@ -548,7 +548,7 @@ async fn run_modular_pipeline(
             image_b64.to_string()
         };
 
-        match gemini_client::apply_cosplay_effect(&effect_b64, "", prompt, references).await {
+        match gemini_client::apply_cosplay_effect(&effect_b64, "", prompt, references, Some(original_size)).await {
             Ok((effect_result, effect_note)) => {
                 result_bytes = effect_result;
                 if note.is_empty() {

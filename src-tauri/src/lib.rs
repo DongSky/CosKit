@@ -4,6 +4,7 @@ pub mod engine;
 pub mod gemini_client;
 pub mod image_utils;
 pub mod models;
+pub mod openai_client;
 pub mod planner;
 pub mod settings;
 pub mod skills;

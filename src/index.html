@@ -114,14 +114,26 @@
       <div class="settings-pane" id="pane-api">
         <div class="settings-section">
           <h3>文本模型</h3>
-          <label>模型名称<input type="text" id="s-text-model" placeholder="gemini-3.1-pro-preview"></label>
+          <label>提供商
+            <select id="s-text-provider">
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>模型名称<input type="text" id="s-text-model" placeholder="gemini-3.1-pro-preview / gpt-5.5"></label>
           <label>Base URL<input type="text" id="s-text-base-url" placeholder="留空使用 .env 配置"></label>
           <label>API Key<input type="text" id="s-text-api-key" class="input-secret" placeholder="留空使用 .env 配置" autocomplete="off" spellcheck="false"></label>
           <label>超时 (ms)<input type="number" id="s-text-timeout" min="10000" step="1000"></label>
         </div>
         <div class="settings-section">
           <h3>图像模型</h3>
-          <label>模型名称<input type="text" id="s-image-model" placeholder="gemini-3.1-pro-image-preview"></label>
+          <label>提供商
+            <select id="s-image-provider">
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>模型名称<input type="text" id="s-image-model" placeholder="gemini-3.1-pro-image-preview / gpt-image-2"></label>
           <label>Base URL<input type="text" id="s-image-base-url" placeholder="留空使用 .env 配置"></label>
           <label>API Key<input type="text" id="s-image-api-key" class="input-secret" placeholder="留空使用文本模型 API Key" autocomplete="off" spellcheck="false"></label>
           <label>超时 (ms)<input type="number" id="s-image-timeout" min="10000" step="1000"></label>

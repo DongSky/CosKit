@@ -98,6 +98,10 @@ impl Session {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default = "default_provider")]
+    pub text_provider: String,
+    #[serde(default = "default_provider")]
+    pub image_provider: String,
     #[serde(default)]
     pub text_base_url: String,
     #[serde(default)]
@@ -116,6 +120,22 @@ pub struct Settings {
     pub image_timeout_ms: u64,
     #[serde(default)]
     pub prompts: HashMap<String, String>,
+    #[serde(default)]
+    pub provider_configs: HashMap<String, ProviderConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProviderConfig {
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+}
+
+fn default_provider() -> String {
+    "gemini".to_string()
 }
 
 fn default_text_timeout() -> u64 {
@@ -163,15 +183,18 @@ pub struct ReferenceImage {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            text_provider: default_provider(),
+            image_provider: default_provider(),
             text_base_url: String::new(),
             text_api_key: String::new(),
-            text_model: crate::gemini_client::DEFAULT_TEXT_MODEL.to_string(),
+            text_model: String::new(),
             image_base_url: String::new(),
             image_api_key: String::new(),
-            image_model: crate::gemini_client::DEFAULT_IMAGE_MODEL.to_string(),
+            image_model: String::new(),
             text_timeout_ms: 180000,
             image_timeout_ms: 300000,
             prompts: crate::settings::default_prompts(),
+            provider_configs: HashMap::new(),
         }
     }
 }
