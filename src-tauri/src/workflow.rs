@@ -16,7 +16,7 @@ pub async fn execute_workflow(
     session_id: &str,
     node_id: &str,
     parent_image_b64: &str,
-    _original_size: (u32, u32),
+    original_size: (u32, u32),
     plan: &WorkflowPlan,
     references: &[ReferenceImage],
 ) -> Result<(Vec<u8>, String), String> {
@@ -132,7 +132,7 @@ pub async fn execute_workflow(
 
             let handle = tokio::spawn(async move {
                 let result =
-                    gemini_client::call_image_generation(&input_b64, &prompt, &refs, temp).await;
+                    gemini_client::call_image_generation(&input_b64, &prompt, &refs, temp, Some(original_size)).await;
                 match result {
                     Ok(bytes) => {
                         outputs_clone.write().await.insert(pn_id.clone(), bytes);
