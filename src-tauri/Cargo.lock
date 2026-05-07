@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "coskit"
-version = "0.0.5"
+version = "0.0.8"
 dependencies = [
  "base64 0.22.1",
  "dirs",

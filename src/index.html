@@ -55,6 +55,8 @@
 <footer id="input-bar" style="display:none;">
   <div class="pipeline-modules" id="pipeline-modules">
     <button class="module-toggle agent-toggle active" data-module="agent_mode">智能规划</button>
+    <button class="module-toggle agent-sub-toggle" data-module="combined_mode" title="合并所有步骤为单次调用">合并执行</button>
+    <button class="module-toggle agent-sub-toggle active" data-module="save_intermediates" title="保存每步中间结果">保存中间结果</button>
     <button class="module-toggle legacy-toggle dimmed" data-module="retouch">美化人像</button>
     <button class="module-toggle legacy-toggle dimmed" data-module="background">更换背景</button>
     <button class="module-toggle legacy-toggle dimmed" data-module="effects">添加特效</button>
@@ -106,6 +108,7 @@
 
     <div class="settings-tabs">
       <button class="settings-tab active" data-tab="api">API 配置</button>
+      <button class="settings-tab" data-tab="review">审核 Agent</button>
       <button class="settings-tab" data-tab="prompts">系统提示词</button>
     </div>
 
@@ -137,6 +140,35 @@
           <label>Base URL<input type="text" id="s-image-base-url" placeholder="留空使用 .env 配置"></label>
           <label>API Key<input type="text" id="s-image-api-key" class="input-secret" placeholder="留空使用文本模型 API Key" autocomplete="off" spellcheck="false"></label>
           <label>超时 (ms)<input type="number" id="s-image-timeout" min="10000" step="1000"></label>
+        </div>
+      </div>
+
+      <!-- Review Agent tab -->
+      <div class="settings-pane" id="pane-review" style="display:none;">
+        <div class="settings-section">
+          <h3>审核 Agent</h3>
+          <p class="prompt-vars">执行工作流后，使用独立模型评估修图质量。可配置与图像/文本模型不同的 provider。</p>
+          <label class="toggle-label">
+            <input type="checkbox" id="s-review-enabled"> 启用审核
+          </label>
+          <label class="toggle-label">
+            <input type="checkbox" id="s-review-auto-correct"> 自动修正（评分低于阈值时重新规划执行）
+          </label>
+          <label>评分阈值 (0-10)<input type="number" id="s-review-threshold" min="0" max="10" step="0.5" value="7"></label>
+          <label>最大重试次数<input type="number" id="s-review-max-retries" min="0" max="5" step="1" value="1"></label>
+        </div>
+        <div class="settings-section">
+          <h3>审核模型配置</h3>
+          <label>提供商
+            <select id="s-review-provider">
+              <option value="">未配置</option>
+              <option value="gemini">Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+          <label>模型名称<input type="text" id="s-review-model" placeholder="如 gpt-4o / gemini-2.5-pro"></label>
+          <label>Base URL<input type="text" id="s-review-base-url" placeholder="留空使用默认地址"></label>
+          <label>API Key<input type="text" id="s-review-api-key" class="input-secret" placeholder="审核模型的 API Key" autocomplete="off" spellcheck="false"></label>
         </div>
       </div>
 

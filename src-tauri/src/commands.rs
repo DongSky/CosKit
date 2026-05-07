@@ -50,14 +50,9 @@ pub async fn create_session(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn get_session(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<Value, String> {
+pub async fn get_session(state: State<'_, AppState>, session_id: String) -> Result<Value, String> {
     let sessions = state.sessions.read().map_err(|e| e.to_string())?;
-    let session = sessions
-        .get(&session_id)
-        .ok_or("session not found")?;
+    let session = sessions.get(&session_id).ok_or("session not found")?;
 
     let nodes: serde_json::Map<String, Value> = session
         .nodes
@@ -129,7 +124,14 @@ pub async fn submit_edit(
     reference_images: Option<Vec<ReferenceImage>>,
 ) -> Result<Value, String> {
     let reference_images = reference_images.unwrap_or_default();
-    let node = engine::submit_edit(&state, &session_id, &parent_node_id, &prompt, modules, reference_images)?;
+    let node = engine::submit_edit(
+        &state,
+        &session_id,
+        &parent_node_id,
+        &prompt,
+        modules,
+        reference_images,
+    )?;
 
     let active_path = {
         let sessions = state.sessions.read().map_err(|e| e.to_string())?;
@@ -180,6 +182,9 @@ pub async fn get_node_status(
     if let Some(ws) = node.metadata.get("workflow_status") {
         result["workflow_status"] = ws.clone();
     }
+    if let Some(rh) = node.metadata.get("review_history") {
+        result["review_history"] = rh.clone();
+    }
 
     Ok(result)
 }
@@ -192,9 +197,7 @@ pub async fn navigate_branch(
     direction: i32,
 ) -> Result<Value, String> {
     let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
-    let session = sessions
-        .get_mut(&session_id)
-        .ok_or("session not found")?;
+    let session = sessions.get_mut(&session_id).ok_or("session not found")?;
 
     let new_path = engine::switch_branch(session, &parent_node_id, direction);
     Ok(json!({"active_path": new_path}))
@@ -207,9 +210,7 @@ pub async fn goto_node(
     node_id: String,
 ) -> Result<Value, String> {
     let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
-    let session = sessions
-        .get_mut(&session_id)
-        .ok_or("session not found")?;
+    let session = sessions.get_mut(&session_id).ok_or("session not found")?;
 
     let new_path = engine::goto_node(session, &node_id);
     Ok(json!({"active_path": new_path}))
@@ -279,8 +280,7 @@ pub async fn export_image(
     match file_path {
         Some(path) => {
             let dest = path.as_path().ok_or("invalid save path")?;
-            std::fs::copy(&src, dest)
-                .map_err(|e| format!("failed to copy image: {e}"))?;
+            std::fs::copy(&src, dest).map_err(|e| format!("failed to copy image: {e}"))?;
             Ok(json!({"ok": true, "path": dest.to_string_lossy()}))
         }
         None => Ok(json!({"cancelled": true})),

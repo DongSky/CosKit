@@ -19,6 +19,7 @@ pub async fn execute_workflow(
     original_size: (u32, u32),
     plan: &WorkflowPlan,
     references: &[ReferenceImage],
+    save_intermediates: bool,
 ) -> Result<(Vec<u8>, String), String> {
     let registry = skills::skill_registry();
     let total_steps = plan.nodes.len() as u32;
@@ -77,7 +78,11 @@ pub async fn execute_workflow(
 
         eprintln!(
             "[CosKit] workflow: batch ready [{}]",
-            ready.iter().map(|pn| format!("{}({})", pn.node_id, pn.skill_id)).collect::<Vec<_>>().join(", ")
+            ready
+                .iter()
+                .map(|pn| format!("{}({})", pn.node_id, pn.skill_id))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
         // Mark ready nodes as running
@@ -131,8 +136,14 @@ pub async fn execute_workflow(
             let outputs_clone = Arc::clone(&outputs);
 
             let handle = tokio::spawn(async move {
-                let result =
-                    gemini_client::call_image_generation(&input_b64, &prompt, &refs, temp, Some(original_size)).await;
+                let result = gemini_client::call_image_generation(
+                    &input_b64,
+                    &prompt,
+                    &refs,
+                    temp,
+                    Some(original_size),
+                )
+                .await;
                 match result {
                     Ok(bytes) => {
                         outputs_clone.write().await.insert(pn_id.clone(), bytes);
@@ -161,6 +172,42 @@ pub async fn execute_workflow(
                             Ok(()) => {
                                 st["status"] = json!("done");
                                 eprintln!("[CosKit] workflow: node {} done", pn_id);
+
+                                // Save intermediate result to disk
+                                if save_intermediates {
+                                    let sdir = crate::settings::data_dir().join(session_id);
+                                    let outs = outputs.read().await;
+                                    if let Some(node_bytes) = outs.get(&pn_id) {
+                                        if let Ok(img) =
+                                            image_utils::load_image_from_bytes(node_bytes)
+                                        {
+                                            let resized = image_utils::resize_to_original(
+                                                &img,
+                                                original_size,
+                                            );
+                                            let img_path = sdir.join(format!(
+                                                "intermediate_{}_{}.jpg",
+                                                node_id, pn_id
+                                            ));
+                                            let thumb_path = sdir.join(format!(
+                                                "intermediate_{}_{}_thumb.jpg",
+                                                node_id, pn_id
+                                            ));
+                                            if image_utils::save_jpeg(&resized, &img_path, 90)
+                                                .is_ok()
+                                            {
+                                                let _ = image_utils::make_thumbnail(
+                                                    &resized,
+                                                    &thumb_path,
+                                                );
+                                                st["image_path"] =
+                                                    json!(img_path.to_string_lossy().to_string());
+                                                st["thumbnail_path"] =
+                                                    json!(thumb_path.to_string_lossy().to_string());
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             Err(ref e) => {
                                 st["status"] = json!("error");
@@ -198,7 +245,10 @@ pub async fn execute_workflow(
 
     let fallback_node_id = plan.nodes.last().map(|n| n.node_id.as_str());
     let final_node_id = sink_nodes.last().copied().or(fallback_node_id);
-    eprintln!("[CosKit] workflow: sink nodes={:?}, selected={:?}", sink_nodes, final_node_id);
+    eprintln!(
+        "[CosKit] workflow: sink nodes={:?}, selected={:?}",
+        sink_nodes, final_node_id
+    );
 
     let outs = outputs.read().await;
     let final_bytes = if let Some(fid) = final_node_id {
@@ -210,6 +260,125 @@ pub async fn execute_workflow(
     };
 
     Ok((final_bytes, plan.reasoning.clone()))
+}
+
+/// Merge all skill prompts from a plan into a single comprehensive prompt.
+fn merge_plan_into_single_prompt(plan: &WorkflowPlan) -> String {
+    let registry = skills::skill_registry();
+    let mut sections = Vec::new();
+
+    for (i, pn) in plan.nodes.iter().enumerate() {
+        if let Some(skill) = registry.get(&pn.skill_id) {
+            let filled = skill
+                .prompt_template
+                .replace("{{SKILL_PROMPT}}", &pn.skill_prompt);
+            sections.push(format!("【步骤 {} - {}】\n{}", i + 1, skill.name, filled));
+        }
+    }
+
+    format!(
+        "你是一位专业的人像修图师。请对这张照片一次性完成以下所有修图步骤。\
+         每个步骤的要求如下，请综合考虑所有要求，保持风格一致性，输出最终结果。\n\n{}\n\n\
+         请直接返回处理后的图片。",
+        sections.join("\n\n")
+    )
+}
+
+/// Execute a workflow plan in combined mode — merge all skill prompts and
+/// make a single image generation call.
+pub async fn execute_workflow_combined(
+    sessions: &RwLock<HashMap<String, Session>>,
+    session_id: &str,
+    node_id: &str,
+    parent_image_b64: &str,
+    original_size: (u32, u32),
+    plan: &WorkflowPlan,
+    references: &[ReferenceImage],
+) -> Result<(Vec<u8>, String), String> {
+    let registry = skills::skill_registry();
+    let total_steps = plan.nodes.len() as u32;
+
+    // Store plan in metadata
+    if let Ok(plan_json) = serde_json::to_value(plan) {
+        engine::update_node(sessions, session_id, node_id, |n| {
+            n.metadata.insert("workflow_plan".into(), plan_json.clone());
+            n.progress_total = 1;
+        });
+    }
+
+    // Initialize workflow status — all nodes at once
+    let mut wf_status: HashMap<String, serde_json::Value> = HashMap::new();
+    for pn in &plan.nodes {
+        let skill_name = registry
+            .get(&pn.skill_id)
+            .map(|s| s.name.as_str())
+            .unwrap_or("未知");
+        wf_status.insert(
+            pn.node_id.clone(),
+            json!({
+                "status": "running",
+                "skill_name": skill_name,
+                "skill_prompt": pn.skill_prompt,
+            }),
+        );
+    }
+    update_workflow_status(sessions, session_id, node_id, &wf_status);
+
+    engine::update_node(sessions, session_id, node_id, |n| {
+        n.progress_step = 0;
+        n.progress_total = 1;
+        n.progress_msg = format!("合并执行中（{} 个步骤，单次调用）...", total_steps);
+    });
+
+    let combined_prompt = merge_plan_into_single_prompt(plan);
+
+    let avg_temp: f64 = {
+        let temps: Vec<f64> = plan
+            .nodes
+            .iter()
+            .filter_map(|pn| registry.get(&pn.skill_id).map(|s| s.default_temperature))
+            .collect();
+        if temps.is_empty() {
+            0.35
+        } else {
+            temps.iter().sum::<f64>() / temps.len() as f64
+        }
+    };
+
+    let result = gemini_client::call_image_generation(
+        parent_image_b64,
+        &combined_prompt,
+        references,
+        avg_temp,
+        Some(original_size),
+    )
+    .await;
+
+    match result {
+        Ok(bytes) => {
+            for pn in &plan.nodes {
+                if let Some(st) = wf_status.get_mut(&pn.node_id) {
+                    st["status"] = json!("done");
+                }
+            }
+            update_workflow_status(sessions, session_id, node_id, &wf_status);
+            engine::update_node(sessions, session_id, node_id, |n| {
+                n.progress_step = 1;
+                n.progress_msg = "合并执行完成".to_string();
+            });
+            Ok((bytes, plan.reasoning.clone()))
+        }
+        Err(e) => {
+            for pn in &plan.nodes {
+                if let Some(st) = wf_status.get_mut(&pn.node_id) {
+                    st["status"] = json!("error");
+                    st["error"] = json!(e.to_string());
+                }
+            }
+            update_workflow_status(sessions, session_id, node_id, &wf_status);
+            Err(e)
+        }
+    }
 }
 
 fn update_workflow_status(
@@ -315,8 +484,8 @@ mod tests {
 
         // Load example image
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let img_bytes = std::fs::read(manifest.join("../example.jpg"))
-            .expect("example.jpg not found");
+        let img_bytes =
+            std::fs::read(manifest.join("../example.jpg")).expect("example.jpg not found");
         let img = image_utils::load_image_from_bytes(&img_bytes).expect("load image");
         let original_size = (img.width(), img.height());
         let jpg_bytes = image_utils::image_to_jpeg_bytes(&img, 90).expect("encode jpeg");
@@ -334,15 +503,17 @@ mod tests {
             .expect("planning failed");
         eprintln!("Reasoning: {}", plan.reasoning);
         for n in &plan.nodes {
-            eprintln!("  {} -> {} (deps: {:?})", n.node_id, n.skill_id, n.depends_on);
+            eprintln!(
+                "  {} -> {} (deps: {:?})",
+                n.node_id, n.skill_id, n.depends_on
+            );
         }
         assert!(!plan.nodes.is_empty(), "plan should have at least one step");
 
         // Step 2: Execute workflow
         eprintln!("=== Executing ===");
-        let sessions = std::sync::Arc::new(std::sync::RwLock::new(
-            std::collections::HashMap::new(),
-        ));
+        let sessions =
+            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
         let sid = "integration_test";
         let nid = "test_node";
@@ -356,7 +527,14 @@ mod tests {
         sessions.write().unwrap().insert(sid.into(), session);
 
         let result = super::execute_workflow(
-            &sessions, sid, nid, &image_b64, original_size, &plan, &[],
+            &sessions,
+            sid,
+            nid,
+            &image_b64,
+            original_size,
+            &plan,
+            &[],
+            false,
         )
         .await;
 

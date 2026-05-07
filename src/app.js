@@ -487,11 +487,15 @@
 
     // Read module toggles
     const agentMode = !!document.querySelector('.module-toggle[data-module="agent_mode"].active');
+    const combinedMode = !!document.querySelector('.module-toggle[data-module="combined_mode"].active');
+    const saveIntermediates = !!document.querySelector('.module-toggle[data-module="save_intermediates"].active');
     const modules = {
       retouch: !!document.querySelector('.module-toggle[data-module="retouch"].active'),
       background: !!document.querySelector('.module-toggle[data-module="background"].active'),
       effects: !!document.querySelector('.module-toggle[data-module="effects"].active'),
       agent_mode: agentMode,
+      combined_mode: combinedMode,
+      save_intermediates: saveIntermediates,
     };
 
     // Collect reference images
@@ -522,6 +526,7 @@
     const wfStatus = status.workflow_status || {};
     const wfPlan = status.workflow_plan;
     const reasoning = wfPlan ? wfPlan.reasoning : "";
+    const reviewHistory = status.review_history || [];
 
     const statusIcons = {
       pending: "○",
@@ -530,6 +535,7 @@
       error: "✗",
     };
 
+    const nodes = wfPlan ? wfPlan.nodes : [];
     let html = '<details class="wf-details" open>';
     html += `<summary>智能规划 · ${nodes.length} 步骤</summary>`;
     html += '<div class="workflow-progress">';
@@ -537,9 +543,6 @@
       html += `<div class="wf-reasoning">${escapeHtml(reasoning)}</div>`;
     }
     html += '<div class="wf-steps">';
-
-    // Use plan node order if available
-    const nodes = wfPlan ? wfPlan.nodes : [];
     if (nodes.length > 0) {
       for (const node of nodes) {
         const st = wfStatus[node.node_id] || {};
@@ -548,11 +551,16 @@
         const prompt = st.skill_prompt || node.skill_prompt || "";
         const icon = statusIcons[stepStatus] || "○";
         const errorMsg = st.error ? ` — ${st.error}` : "";
+        const thumbPath = st.thumbnail_path || "";
 
         html += `<div class="wf-step wf-step-${stepStatus}">`;
         html += `<span class="wf-step-icon">${stepStatus === "running" ? '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;"></span>' : icon}</span>`;
         html += `<span class="wf-step-name">${escapeHtml(skillName)}</span>`;
         html += `<span class="wf-step-prompt">${escapeHtml(prompt)}${escapeHtml(errorMsg)}</span>`;
+        if (thumbPath && stepStatus === "done") {
+          const thumbUrl = `file://${encodeURI(thumbPath)}`;
+          html += `<img class="wf-step-thumb" src="${thumbUrl}" alt="中间结果" title="点击查看" onerror="this.style.display='none'">`;
+        }
         html += `</div>`;
       }
     } else {
@@ -571,7 +579,27 @@
       }
     }
 
-    html += "</div></div></details>";
+    html += "</div>";
+
+    // Review history summary
+    if (reviewHistory.length > 0) {
+      html += '<div class="wf-reviews">';
+      for (const entry of reviewHistory) {
+        const r = entry.review || {};
+        const score = (r.overall_score || 0).toFixed(1);
+        const pass = r.pass ? "✓" : "✗";
+        const passCls = r.pass ? "pass" : "fail";
+        html += `<div class="wf-review wf-review-${passCls}">`;
+        html += `<span class="wf-review-score">审核 #${entry.attempt + 1} ${pass} ${score}/10</span>`;
+        if (r.feedback) {
+          html += `<span class="wf-review-feedback">${escapeHtml(r.feedback)}</span>`;
+        }
+        html += "</div>";
+      }
+      html += "</div>";
+    }
+
+    html += "</div></details>";
     return html;
   }
 
@@ -688,6 +716,15 @@
     document.getElementById("s-image-base-url").value = settings.image_base_url || "";
     document.getElementById("s-image-api-key").value = settings.image_api_key || "";
     document.getElementById("s-image-timeout").value = settings.image_timeout_ms || 300000;
+    // Populate review fields
+    document.getElementById("s-review-enabled").checked = !!settings.review_enabled;
+    document.getElementById("s-review-auto-correct").checked = !!settings.review_auto_correct;
+    document.getElementById("s-review-threshold").value = settings.review_threshold ?? 7.0;
+    document.getElementById("s-review-max-retries").value = settings.review_max_retries ?? 1;
+    document.getElementById("s-review-provider").value = settings.review_provider || "";
+    document.getElementById("s-review-model").value = settings.review_model || "";
+    document.getElementById("s-review-base-url").value = settings.review_base_url || "";
+    document.getElementById("s-review-api-key").value = settings.review_api_key || "";
     // Populate prompt fields
     const prompts = settings.prompts || {};
     for (const [key, elId] of Object.entries(PROMPT_FIELDS)) {
@@ -733,6 +770,14 @@
       image_base_url: document.getElementById("s-image-base-url").value.trim(),
       image_api_key: document.getElementById("s-image-api-key").value.trim(),
       image_timeout_ms: parseInt(document.getElementById("s-image-timeout").value, 10) || 300000,
+      review_enabled: document.getElementById("s-review-enabled").checked,
+      review_auto_correct: document.getElementById("s-review-auto-correct").checked,
+      review_threshold: parseFloat(document.getElementById("s-review-threshold").value) || 7.0,
+      review_max_retries: parseInt(document.getElementById("s-review-max-retries").value, 10) || 0,
+      review_provider: document.getElementById("s-review-provider").value || "",
+      review_model: document.getElementById("s-review-model").value.trim(),
+      review_base_url: document.getElementById("s-review-base-url").value.trim(),
+      review_api_key: document.getElementById("s-review-api-key").value.trim(),
       prompts: {},
       provider_configs: settingsProviderConfigs,
     };
@@ -761,6 +806,7 @@
     });
     // Update panes
     document.getElementById("pane-api").style.display = tabName === "api" ? "" : "none";
+    document.getElementById("pane-review").style.display = tabName === "review" ? "" : "none";
     document.getElementById("pane-prompts").style.display = tabName === "prompts" ? "" : "none";
   }
 
@@ -999,6 +1045,13 @@
         btn.classList.remove("dimmed");
       }
     });
+    document.querySelectorAll(".agent-sub-toggle").forEach((btn) => {
+      if (agentActive) {
+        btn.classList.remove("dimmed");
+      } else {
+        btn.classList.add("dimmed");
+      }
+    });
   }
 
   document.querySelectorAll(".module-toggle").forEach((btn) => {
@@ -1013,6 +1066,13 @@
             document.querySelector('.module-toggle[data-module="retouch"]').classList.add("active");
           }
         }
+        return;
+      }
+      // Agent sub-toggles: only work when agent mode is on
+      if (btn.classList.contains("agent-sub-toggle")) {
+        const agentActive = document.querySelector('.module-toggle[data-module="agent_mode"]').classList.contains("active");
+        if (!agentActive) return;
+        btn.classList.toggle("active");
         return;
       }
       // Legacy toggles: only work when agent mode is off

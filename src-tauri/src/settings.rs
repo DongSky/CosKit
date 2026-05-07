@@ -172,6 +172,31 @@ pub fn load_settings() -> Settings {
                         settings.provider_configs = configs;
                     }
                 }
+                // Review Agent settings
+                if let Some(v) = saved.get("review_enabled").and_then(|v| v.as_bool()) {
+                    settings.review_enabled = v;
+                }
+                if let Some(v) = saved.get("review_auto_correct").and_then(|v| v.as_bool()) {
+                    settings.review_auto_correct = v;
+                }
+                if let Some(v) = saved.get("review_threshold").and_then(|v| v.as_f64()) {
+                    settings.review_threshold = v;
+                }
+                if let Some(v) = saved.get("review_max_retries").and_then(|v| v.as_u64()) {
+                    settings.review_max_retries = v as u32;
+                }
+                if let Some(v) = saved.get("review_provider").and_then(|v| v.as_str()) {
+                    settings.review_provider = v.to_string();
+                }
+                if let Some(v) = saved.get("review_model").and_then(|v| v.as_str()) {
+                    settings.review_model = v.to_string();
+                }
+                if let Some(v) = saved.get("review_base_url").and_then(|v| v.as_str()) {
+                    settings.review_base_url = v.to_string();
+                }
+                if let Some(v) = saved.get("review_api_key").and_then(|v| v.as_str()) {
+                    settings.review_api_key = v.to_string();
+                }
                 settings
             }
             Err(e) => {

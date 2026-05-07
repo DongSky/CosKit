@@ -72,115 +72,129 @@ impl GeminiClients {
         };
 
         // ----- Text model resolution -----
-        let (text_url, text_openai_base, text_api_key, text_model) = if text_provider == PROVIDER_OPENAI {
-            let base = openai_client::resolve_base_url(&settings.text_base_url);
-            let key = openai_client::resolve_api_key(&settings.text_api_key);
-            let env_model = crate::dotenv::get_env_var("OPENAI_MODEL").trim().to_string();
-            let model = if !settings.text_model.trim().is_empty() {
-                settings.text_model.trim().to_string()
-            } else if !env_model.is_empty() {
-                env_model
-            } else {
-                openai_client::DEFAULT_TEXT_MODEL.to_string()
-            };
-            (String::new(), base, key, model)
-        } else {
-            // Gemini
-            let raw = if !settings.text_base_url.trim().is_empty() {
-                settings.text_base_url.trim().to_string()
-            } else {
-                crate::dotenv::get_env_var("GEMINI_BASE_URL").trim().to_string()
-            };
-            let key = if !settings.text_api_key.trim().is_empty() {
-                settings.text_api_key.trim().to_string()
-            } else {
-                crate::dotenv::get_env_var("GEMINI_API_KEY").trim().to_string()
-            };
-            let (base, url_model) = if !raw.is_empty() {
-                parse_proxy_url(&raw)
-            } else {
-                (String::new(), String::new())
-            };
-            let model = if !settings.text_model.trim().is_empty() {
-                settings.text_model.trim().to_string()
-            } else {
-                let env_val = crate::dotenv::get_env_var("GEMINI_TEXT_MODEL");
-                if !env_val.trim().is_empty() {
-                    env_val.trim().to_string()
-                } else if !url_model.is_empty() {
-                    url_model
+        let (text_url, text_openai_base, text_api_key, text_model) =
+            if text_provider == PROVIDER_OPENAI {
+                let base = openai_client::resolve_base_url(&settings.text_base_url);
+                let key = openai_client::resolve_api_key(&settings.text_api_key);
+                let env_model = crate::dotenv::get_env_var("OPENAI_MODEL")
+                    .trim()
+                    .to_string();
+                let model = if !settings.text_model.trim().is_empty() {
+                    settings.text_model.trim().to_string()
+                } else if !env_model.is_empty() {
+                    env_model
                 } else {
-                    DEFAULT_TEXT_MODEL.to_string()
-                }
+                    openai_client::DEFAULT_TEXT_MODEL.to_string()
+                };
+                (String::new(), base, key, model)
+            } else {
+                // Gemini
+                let raw = if !settings.text_base_url.trim().is_empty() {
+                    settings.text_base_url.trim().to_string()
+                } else {
+                    crate::dotenv::get_env_var("GEMINI_BASE_URL")
+                        .trim()
+                        .to_string()
+                };
+                let key = if !settings.text_api_key.trim().is_empty() {
+                    settings.text_api_key.trim().to_string()
+                } else {
+                    crate::dotenv::get_env_var("GEMINI_API_KEY")
+                        .trim()
+                        .to_string()
+                };
+                let (base, url_model) = if !raw.is_empty() {
+                    parse_proxy_url(&raw)
+                } else {
+                    (String::new(), String::new())
+                };
+                let model = if !settings.text_model.trim().is_empty() {
+                    settings.text_model.trim().to_string()
+                } else {
+                    let env_val = crate::dotenv::get_env_var("GEMINI_TEXT_MODEL");
+                    if !env_val.trim().is_empty() {
+                        env_val.trim().to_string()
+                    } else if !url_model.is_empty() {
+                        url_model
+                    } else {
+                        DEFAULT_TEXT_MODEL.to_string()
+                    }
+                };
+                let url = build_api_url(&base, &model);
+                (url, String::new(), key, model)
             };
-            let url = build_api_url(&base, &model);
-            (url, String::new(), key, model)
-        };
         let text_timeout = settings.text_timeout_ms;
 
         // ----- Image model resolution -----
-        let (image_url, image_openai_base, image_api_key, image_model) = if image_provider == PROVIDER_OPENAI {
-            let base = openai_client::resolve_base_url(&settings.image_base_url);
-            let key_settings = settings.image_api_key.trim().to_string();
-            let key = if !key_settings.is_empty() {
-                key_settings
-            } else {
-                let env_key = crate::dotenv::get_env_var("OPENAI_API_KEY").trim().to_string();
-                if !env_key.is_empty() {
-                    env_key
-                } else if text_provider == PROVIDER_OPENAI && !text_api_key.is_empty() {
-                    text_api_key.clone()
+        let (image_url, image_openai_base, image_api_key, image_model) =
+            if image_provider == PROVIDER_OPENAI {
+                let base = openai_client::resolve_base_url(&settings.image_base_url);
+                let key_settings = settings.image_api_key.trim().to_string();
+                let key = if !key_settings.is_empty() {
+                    key_settings
                 } else {
-                    String::new()
-                }
-            };
-            let env_model = crate::dotenv::get_env_var("OPENAI_IMAGE_MODEL").trim().to_string();
-            let model = if !settings.image_model.trim().is_empty() {
-                settings.image_model.trim().to_string()
-            } else if !env_model.is_empty() {
-                env_model
-            } else {
-                openai_client::DEFAULT_IMAGE_MODEL.to_string()
-            };
-            (String::new(), base, key, model)
-        } else {
-            let raw = if !settings.image_base_url.trim().is_empty() {
-                settings.image_base_url.trim().to_string()
-            } else {
-                crate::dotenv::get_env_var("GEMINI_IMAGE_BASE_URL").trim().to_string()
-            };
-            let key = if !settings.image_api_key.trim().is_empty() {
-                settings.image_api_key.trim().to_string()
-            } else {
-                let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_API_KEY");
-                if !env_val.trim().is_empty() {
-                    env_val.trim().to_string()
-                } else if text_provider == PROVIDER_GEMINI && !text_api_key.is_empty() {
-                    text_api_key.clone()
+                    let env_key = crate::dotenv::get_env_var("OPENAI_API_KEY")
+                        .trim()
+                        .to_string();
+                    if !env_key.is_empty() {
+                        env_key
+                    } else if text_provider == PROVIDER_OPENAI && !text_api_key.is_empty() {
+                        text_api_key.clone()
+                    } else {
+                        String::new()
+                    }
+                };
+                let env_model = crate::dotenv::get_env_var("OPENAI_IMAGE_MODEL")
+                    .trim()
+                    .to_string();
+                let model = if !settings.image_model.trim().is_empty() {
+                    settings.image_model.trim().to_string()
+                } else if !env_model.is_empty() {
+                    env_model
                 } else {
-                    String::new()
-                }
-            };
-            let (base, url_model) = if !raw.is_empty() {
-                parse_proxy_url(&raw)
+                    openai_client::DEFAULT_IMAGE_MODEL.to_string()
+                };
+                (String::new(), base, key, model)
             } else {
-                (String::new(), String::new())
-            };
-            let model = if !settings.image_model.trim().is_empty() {
-                settings.image_model.trim().to_string()
-            } else {
-                let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_MODEL");
-                if !env_val.trim().is_empty() {
-                    env_val.trim().to_string()
-                } else if !url_model.is_empty() {
-                    url_model
+                let raw = if !settings.image_base_url.trim().is_empty() {
+                    settings.image_base_url.trim().to_string()
                 } else {
-                    DEFAULT_IMAGE_MODEL.to_string()
-                }
+                    crate::dotenv::get_env_var("GEMINI_IMAGE_BASE_URL")
+                        .trim()
+                        .to_string()
+                };
+                let key = if !settings.image_api_key.trim().is_empty() {
+                    settings.image_api_key.trim().to_string()
+                } else {
+                    let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_API_KEY");
+                    if !env_val.trim().is_empty() {
+                        env_val.trim().to_string()
+                    } else if text_provider == PROVIDER_GEMINI && !text_api_key.is_empty() {
+                        text_api_key.clone()
+                    } else {
+                        String::new()
+                    }
+                };
+                let (base, url_model) = if !raw.is_empty() {
+                    parse_proxy_url(&raw)
+                } else {
+                    (String::new(), String::new())
+                };
+                let model = if !settings.image_model.trim().is_empty() {
+                    settings.image_model.trim().to_string()
+                } else {
+                    let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_MODEL");
+                    if !env_val.trim().is_empty() {
+                        env_val.trim().to_string()
+                    } else if !url_model.is_empty() {
+                        url_model
+                    } else {
+                        DEFAULT_IMAGE_MODEL.to_string()
+                    }
+                };
+                let url = build_api_url(&base, &model);
+                (url, String::new(), key, model)
             };
-            let url = build_api_url(&base, &model);
-            (url, String::new(), key, model)
-        };
         let image_timeout = settings.image_timeout_ms;
 
         if text_api_key.is_empty() {
@@ -213,12 +227,8 @@ impl GeminiClients {
 
         let prompts = settings.prompts;
 
-        eprintln!(
-            "[CosKit] text  → provider={text_provider} model={text_model}"
-        );
-        eprintln!(
-            "[CosKit] image → provider={image_provider} model={image_model}"
-        );
+        eprintln!("[CosKit] text  → provider={text_provider} model={text_model}");
+        eprintln!("[CosKit] image → provider={image_provider} model={image_model}");
 
         let clients = GeminiClients {
             text_client,
@@ -250,9 +260,7 @@ impl GeminiClients {
 
 fn build_api_url(base: &str, model: &str) -> String {
     if base.is_empty() {
-        format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        )
+        format!("https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent")
     } else {
         format!("{base}/v1beta/models/{model}:generateContent")
     }
@@ -405,8 +413,7 @@ async fn call_with_retry(
         }
 
         tries += 1;
-        let wait =
-            (2.0f64.powi(tries as i32)).min(10.0) + rand::thread_rng().gen_range(0.0..1.0);
+        let wait = (2.0f64.powi(tries as i32)).min(10.0) + rand::thread_rng().gen_range(0.0..1.0);
         eprintln!("  retry {tries}/{max_tries} after {wait:.1}s: {last_error}");
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
     }
@@ -574,9 +581,27 @@ pub async fn detect_scene_type(
     let clients = get_clients()?;
 
     let cosplay_keywords = [
-        "cosplay", "cos", "coser", "角色", "二次元", "动漫", "游戏", "原神", "崩坏",
-        "星穹铁道", "明日方舟", "fate", "lol", "英雄联盟", "花火", "三月七", "符玄",
-        "银狼", "刻晴", "甘雨", "雷电将军",
+        "cosplay",
+        "cos",
+        "coser",
+        "角色",
+        "二次元",
+        "动漫",
+        "游戏",
+        "原神",
+        "崩坏",
+        "星穹铁道",
+        "明日方舟",
+        "fate",
+        "lol",
+        "英雄联盟",
+        "花火",
+        "三月七",
+        "符玄",
+        "银狼",
+        "刻晴",
+        "甘雨",
+        "雷电将军",
     ];
     let prompt_lower = user_prompt.to_lowercase();
     let matched: Vec<&str> = if !user_prompt.is_empty() {
@@ -761,9 +786,7 @@ pub async fn apply_cosplay_effect(
     let clients = get_clients()?;
 
     let tone_constraint = if !user_prompt.is_empty() {
-        format!(
-            "\n【用户色调偏好（必须遵守，不得添加与之冲突的色调/光效）】\n{user_prompt}\n"
-        )
+        format!("\n【用户色调偏好（必须遵守，不得添加与之冲突的色调/光效）】\n{user_prompt}\n")
     } else {
         String::new()
     };
@@ -787,8 +810,8 @@ pub async fn apply_cosplay_effect(
 
     let contents = build_contents_with_references(&prompt, image_b64, references);
 
-    let resp = dispatch_image(&clients, contents, 0.3, 5, original_size).await?;    let img_bytes =
-        extract_image_bytes(&resp).ok_or("no image returned in cosplay effect step")?;
+    let resp = dispatch_image(&clients, contents, 0.3, 5, original_size).await?;
+    let img_bytes = extract_image_bytes(&resp).ok_or("no image returned in cosplay effect step")?;
 
     Ok((img_bytes, "已添加轻度氛围特效".to_string()))
 }
@@ -826,4 +849,46 @@ pub async fn call_text_generation(
     let resp = dispatch_text(&clients, contents, temperature, 5).await?;
 
     Ok(resp)
+}
+
+/// Text model call with explicit provider config, independent of the singleton.
+/// Used by the review agent to call a potentially different model/provider.
+pub async fn call_text_with_provider(
+    provider: &str,
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    contents: Value,
+    temperature: f64,
+    max_tries: u32,
+) -> Result<Value, String> {
+    let timeout = {
+        let clients = get_clients().ok();
+        clients.map(|c| c.text_client.clone()).is_some()
+    };
+    // Build a one-off client with the text timeout from settings
+    let settings = crate::settings::load_settings();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(settings.text_timeout_ms))
+        .build()
+        .map_err(|e| format!("failed to build review client: {e}"))?;
+    let _ = timeout; // suppress unused
+
+    if provider == PROVIDER_OPENAI {
+        openai_client::call_text(
+            &client,
+            base_url,
+            api_key,
+            model,
+            contents,
+            temperature,
+            max_tries,
+        )
+        .await
+    } else {
+        // Gemini provider
+        let url = build_api_url(base_url, model);
+        let config = text_config(temperature);
+        call_with_retry(&client, &url, api_key, contents, config, max_tries).await
+    }
 }

@@ -7,6 +7,7 @@ use crate::gemini_client;
 use crate::image_utils;
 use crate::models::{EditNode, PipelineModules, ReferenceImage, Session};
 use crate::planner;
+use crate::reviewer;
 use crate::settings;
 use crate::workflow;
 
@@ -348,7 +349,12 @@ async fn run_edit_pipeline(
         }
     };
 
-    let img_bytes = match image_utils::image_to_jpeg_bytes(&parent_img, 90) {
+    // Downscale large images before sending to API to avoid slow uploads
+    // and long inference. The output size will still match original_size
+    // because openai_client uses original_size to pick output dimensions,
+    // and resize_to_original is applied to the result downstream.
+    let api_img = image_utils::resize_max_dimension(&parent_img, 2048);
+    let img_bytes = match image_utils::image_to_jpeg_bytes(&api_img, 90) {
         Ok(b) => b,
         Err(e) => {
             update_node(&sessions, &session_id, &node_id, |node| {
@@ -359,35 +365,50 @@ async fn run_edit_pipeline(
             return;
         }
     };
+    eprintln!(
+        "[CosKit] pipeline: input downscaled {}x{} -> {}x{}, jpeg={} bytes",
+        parent_img.width(),
+        parent_img.height(),
+        api_img.width(),
+        api_img.height(),
+        img_bytes.len()
+    );
     let image_b64 = image_utils::bytes_to_base64(&img_bytes);
 
     eprintln!("[CosKit] pipeline: prompt={}", prompt);
 
     let result = if modules.agent_mode {
-        eprintln!("[CosKit] pipeline: entering agent mode");
-        // Agent-driven workflow
+        eprintln!(
+            "[CosKit] pipeline: entering agent mode (combined={}, save_intermediates={})",
+            modules.combined_mode, modules.save_intermediates
+        );
+
         update_node(&sessions, &session_id, &node_id, |node| {
             node.progress_msg = "正在规划工作流...".to_string();
         });
 
         match planner::plan_workflow(&image_b64, &prompt, &references).await {
-            Ok(plan) => {
-                workflow::execute_workflow(
+            Ok(initial_plan) => {
+                run_agent_workflow_with_review(
                     &sessions,
                     &session_id,
                     &node_id,
                     &image_b64,
+                    &prompt,
                     original_size,
-                    &plan,
+                    &modules,
                     &references,
+                    initial_plan,
                 )
                 .await
             }
             Err(e) => Err(format!("规划失败: {e}")),
         }
     } else {
-        eprintln!("[CosKit] pipeline: entering legacy mode (retouch={}, bg={}, fx={})",
-            modules.retouch, modules.background, modules.effects);
+        eprintln!(
+            "[CosKit] pipeline: entering legacy mode (retouch={}, bg={}, fx={})",
+            modules.retouch, modules.background, modules.effects
+        );
         // Legacy modular pipeline
         run_modular_pipeline(
             &sessions,
@@ -413,8 +434,7 @@ async fn run_edit_pipeline(
                 Err(e) => {
                     update_node(&sessions, &session_id, &node_id, |node| {
                         node.status = "error".to_string();
-                        node.error_msg =
-                            Some(format!("failed to process result image: {e}"));
+                        node.error_msg = Some(format!("failed to process result image: {e}"));
                     });
                     save_session_from_map(&sessions, &session_id);
                     return;
@@ -453,6 +473,166 @@ async fn run_edit_pipeline(
     }
 }
 
+/// Agent workflow with optional review + auto-correction retry loop.
+async fn run_agent_workflow_with_review(
+    sessions: &RwLock<HashMap<String, Session>>,
+    session_id: &str,
+    node_id: &str,
+    image_b64: &str,
+    prompt: &str,
+    original_size: (u32, u32),
+    modules: &PipelineModules,
+    references: &[ReferenceImage],
+    initial_plan: planner::WorkflowPlan,
+) -> Result<(Vec<u8>, String), String> {
+    let review_settings = settings::load_settings();
+    let review_enabled = review_settings.review_enabled;
+    let auto_correct = review_settings.review_auto_correct;
+    let threshold = review_settings.review_threshold;
+
+    let max_attempts = if review_enabled && auto_correct {
+        1 + review_settings.review_max_retries
+    } else {
+        1
+    };
+
+    let review_config = reviewer::ReviewConfig {
+        provider: review_settings.review_provider.clone(),
+        model: review_settings.review_model.clone(),
+        base_url: review_settings.review_base_url.clone(),
+        api_key: review_settings.review_api_key.clone(),
+    };
+
+    let mut current_plan = initial_plan;
+    let mut review_history: Vec<serde_json::Value> = Vec::new();
+
+    for attempt in 0..max_attempts {
+        if attempt > 0 {
+            eprintln!(
+                "[CosKit] review: retry attempt {}/{}",
+                attempt,
+                max_attempts - 1
+            );
+        }
+
+        // Execute workflow (step-by-step or combined)
+        let exec_result = if modules.combined_mode {
+            workflow::execute_workflow_combined(
+                sessions,
+                session_id,
+                node_id,
+                image_b64,
+                original_size,
+                &current_plan,
+                references,
+            )
+            .await
+        } else {
+            workflow::execute_workflow(
+                sessions,
+                session_id,
+                node_id,
+                image_b64,
+                original_size,
+                &current_plan,
+                references,
+                modules.save_intermediates,
+            )
+            .await
+        };
+
+        let (result_bytes, note) = match exec_result {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
+
+        // If review not enabled, accept immediately
+        if !review_enabled {
+            return Ok((result_bytes, note));
+        }
+
+        // Run review
+        update_node(sessions, session_id, node_id, |n| {
+            n.progress_msg = "正在审核结果...".to_string();
+        });
+
+        let result_b64 = image_utils::bytes_to_base64(&result_bytes);
+
+        match reviewer::review_image(
+            &review_config,
+            image_b64,
+            &result_b64,
+            prompt,
+            &current_plan,
+            references,
+            threshold,
+        )
+        .await
+        {
+            Ok(review) => {
+                let review_json = serde_json::to_value(&review).unwrap_or_default();
+                review_history.push(serde_json::json!({
+                    "attempt": attempt,
+                    "review": review_json,
+                }));
+
+                update_node(sessions, session_id, node_id, |n| {
+                    n.metadata.insert(
+                        "review_history".into(),
+                        serde_json::Value::Array(review_history.clone()),
+                    );
+                });
+
+                let is_last = attempt == max_attempts - 1;
+                if review.pass || !auto_correct || is_last {
+                    let final_note = format!(
+                        "{}\n\n审核评分: {:.1}/10{}",
+                        note,
+                        review.overall_score,
+                        if review.pass { "" } else { "（未达标）" }
+                    );
+                    return Ok((result_bytes, final_note));
+                }
+
+                // Re-plan with feedback
+                update_node(sessions, session_id, node_id, |n| {
+                    n.progress_msg = format!(
+                        "审核评分 {:.1}/10，正在优化重试 ({}/{})...",
+                        review.overall_score,
+                        attempt + 1,
+                        max_attempts - 1
+                    );
+                });
+
+                match planner::plan_workflow_with_feedback(
+                    image_b64,
+                    prompt,
+                    references,
+                    &review.feedback,
+                    &review.suggestions,
+                )
+                .await
+                {
+                    Ok(new_plan) => {
+                        current_plan = new_plan;
+                    }
+                    Err(e) => {
+                        let final_note = format!("{}\n重规划失败: {}", note, e);
+                        return Ok((result_bytes, final_note));
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[CosKit] review error (skipping): {e}");
+                let final_note = format!("{}\n审核跳过: {}", note, e);
+                return Ok((result_bytes, final_note));
+            }
+        }
+    }
+
+    Err("工作流执行超出最大重试次数".to_string())
+}
+
 async fn run_modular_pipeline(
     sessions: &RwLock<HashMap<String, Session>>,
     session_id: &str,
@@ -488,8 +668,7 @@ async fn run_modular_pipeline(
 
         let scene_clone = scene.clone();
         update_node(sessions, session_id, node_id, |node| {
-            node.metadata
-                .insert("scene_info".to_string(), scene_clone);
+            node.metadata.insert("scene_info".to_string(), scene_clone);
         });
     }
 
@@ -523,8 +702,14 @@ async fn run_modular_pipeline(
         });
         // When only background is selected (no retouch), don't pass the user prompt as retouch instruction
         let retouch_prompt = if modules.retouch { prompt } else { "" };
-        let (bytes, retouch_note) =
-            gemini_client::retouch_image(image_b64, retouch_prompt, &bg_suggestion, references, Some(original_size)).await?;
+        let (bytes, retouch_note) = gemini_client::retouch_image(
+            image_b64,
+            retouch_prompt,
+            &bg_suggestion,
+            references,
+            Some(original_size),
+        )
+        .await?;
         result_bytes = bytes;
         note = retouch_note;
     }
@@ -548,7 +733,15 @@ async fn run_modular_pipeline(
             image_b64.to_string()
         };
 
-        match gemini_client::apply_cosplay_effect(&effect_b64, "", prompt, references, Some(original_size)).await {
+        match gemini_client::apply_cosplay_effect(
+            &effect_b64,
+            "",
+            prompt,
+            references,
+            Some(original_size),
+        )
+        .await
+        {
             Ok((effect_result, effect_note)) => {
                 result_bytes = effect_result;
                 if note.is_empty() {
