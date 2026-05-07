@@ -34,10 +34,7 @@ pub fn validate_plan(plan: &WorkflowPlan) -> Result<(), String> {
         }
         for dep in &node.depends_on {
             if !node_ids.contains(dep.as_str()) {
-                return Err(format!(
-                    "步骤 {} 依赖的 {} 不存在",
-                    node.node_id, dep
-                ));
+                return Err(format!("步骤 {} 依赖的 {} 不存在", node.node_id, dep));
             }
         }
     }
@@ -49,6 +46,36 @@ pub async fn plan_workflow(
     image_b64: &str,
     user_prompt: &str,
     references: &[ReferenceImage],
+) -> Result<WorkflowPlan, String> {
+    plan_workflow_inner(image_b64, user_prompt, references, "").await
+}
+
+pub async fn plan_workflow_with_feedback(
+    image_b64: &str,
+    user_prompt: &str,
+    references: &[ReferenceImage],
+    feedback: &str,
+    suggestions: &[String],
+) -> Result<WorkflowPlan, String> {
+    let suggestions_text = suggestions
+        .iter()
+        .map(|s| format!("- {s}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let feedback_section = format!(
+        "\n\n## 上一次执行的审核反馈\n{feedback}\n\n## 改进建议\n{suggestions_text}\n\n\
+         请根据以上反馈优化你的规划，避免之前的问题。"
+    );
+
+    plan_workflow_inner(image_b64, user_prompt, references, &feedback_section).await
+}
+
+async fn plan_workflow_inner(
+    image_b64: &str,
+    user_prompt: &str,
+    references: &[ReferenceImage],
+    feedback_section: &str,
 ) -> Result<WorkflowPlan, String> {
     let catalog = skills::skills_catalog_for_planner();
 
@@ -101,16 +128,11 @@ pub async fn plan_workflow(
 ```
 
 ## 用户需求
-{user_prompt}"#
+{user_prompt}{feedback_section}"#
     );
 
-    let resp = gemini_client::call_text_generation(
-        image_b64,
-        &system_prompt,
-        references,
-        0.2,
-    )
-    .await?;
+    let resp =
+        gemini_client::call_text_generation(image_b64, &system_prompt, references, 0.2).await?;
 
     let text = gemini_client::extract_text(&resp);
     if text.is_empty() {
@@ -118,8 +140,8 @@ pub async fn plan_workflow(
     }
 
     let json_val = gemini_client::parse_json(&text)?;
-    let plan: WorkflowPlan = serde_json::from_value(json_val)
-        .map_err(|e| format!("解析规划结果失败: {e}"))?;
+    let plan: WorkflowPlan =
+        serde_json::from_value(json_val).map_err(|e| format!("解析规划结果失败: {e}"))?;
 
     validate_plan(&plan)?;
 
@@ -214,7 +236,10 @@ mod tests {
 
     #[test]
     fn validate_unknown_skill_rejected() {
-        let plan = make_plan("bad skill", vec![make_node("step_1", "nonexistent_skill", vec![])]);
+        let plan = make_plan(
+            "bad skill",
+            vec![make_node("step_1", "nonexistent_skill", vec![])],
+        );
         let err = validate_plan(&plan).unwrap_err();
         assert!(err.contains("未知技能"));
     }

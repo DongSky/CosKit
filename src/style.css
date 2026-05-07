@@ -1133,6 +1133,69 @@ body {
   color: var(--error);
 }
 
+.wf-step-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.wf-reviews {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wf-review {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.wf-review-score {
+  font-weight: 600;
+}
+
+.wf-review-pass .wf-review-score {
+  color: var(--success);
+}
+
+.wf-review-fail .wf-review-score {
+  color: var(--error);
+}
+
+.wf-review-feedback {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.toggle-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.agent-sub-toggle.dimmed {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 /* ── Collapsible workflow details ─────────────────────── */
 
 .wf-details {

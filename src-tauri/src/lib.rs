@@ -6,6 +6,7 @@ pub mod image_utils;
 pub mod models;
 pub mod openai_client;
 pub mod planner;
+pub mod reviewer;
 pub mod settings;
 pub mod skills;
 pub mod workflow;

@@ -14,6 +14,9 @@ const PERMANENT_ERROR_KEYWORDS: &[&str] = &[
     "RECITATION",
     "BLOCKED",
     "CONTENT_POLICY",
+    "MODERATION_BLOCKED",
+    "SAFETY_VIOLATIONS",
+    "IMAGE_GENERATION_USER_ERROR",
 ];
 
 /// Resolve OpenAI base URL: settings → OPENAI_BASE_URL env → default (yunwu.ai).
@@ -35,7 +38,9 @@ pub fn resolve_api_key(settings_key: &str) -> String {
     if !s.is_empty() {
         return s.to_string();
     }
-    crate::dotenv::get_env_var("OPENAI_API_KEY").trim().to_string()
+    crate::dotenv::get_env_var("OPENAI_API_KEY")
+        .trim()
+        .to_string()
 }
 
 pub fn resolve_text_model(settings_model: &str) -> String {
@@ -151,7 +156,10 @@ async fn post_json_with_retry(
                         .map_err(|e| format!("JSON parse error: {e}"));
                 }
                 let err_upper = text.to_uppercase();
-                if PERMANENT_ERROR_KEYWORDS.iter().any(|kw| err_upper.contains(kw)) {
+                if PERMANENT_ERROR_KEYWORDS
+                    .iter()
+                    .any(|kw| err_upper.contains(kw))
+                {
                     eprintln!("  [openai] permanent error: {text}");
                     return Err(format!("permanent API error: {text}"));
                 }
@@ -162,13 +170,14 @@ async fn post_json_with_retry(
             }
         }
         tries += 1;
-        let wait =
-            (2.0f64.powi(tries as i32)).min(10.0) + rand::thread_rng().gen_range(0.0..1.0);
+        let wait = (2.0f64.powi(tries as i32)).min(10.0) + rand::thread_rng().gen_range(0.0..1.0);
         eprintln!("  [openai] retry {tries}/{max_tries} after {wait:.1}s: {last_error}");
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
     }
 
-    Err(format!("openai call failed after {max_tries} tries: {last_error}"))
+    Err(format!(
+        "openai call failed after {max_tries} tries: {last_error}"
+    ))
 }
 
 /// Call OpenAI chat-completions for a vision/text request. Returns a
@@ -264,30 +273,55 @@ async fn send_image_request(
 ///   - Long/short ratio <= 3:1
 ///   - Total pixels in [655_360, 8_294_400]
 ///
-/// Strategy: keep original dimensions, round to multiples of 16, then clamp.
+/// Strategy: scale uniformly to satisfy all constraints, preserving aspect
+/// ratio, then snap each edge to a multiple of 16.
 fn compute_output_size(w: u32, h: u32) -> String {
-    let mut ow = ((w as f64) / 16.0).round() as u32 * 16;
-    let mut oh = ((h as f64) / 16.0).round() as u32 * 16;
-
-    ow = ow.clamp(256, 3840);
-    oh = oh.clamp(256, 3840);
-
-    // Enforce ratio <= 3:1
-    if ow > oh * 3 {
-        ow = oh * 3;
-    } else if oh > ow * 3 {
-        oh = ow * 3;
-    }
-
-    // Enforce total pixel bounds
-    let total = ow as u64 * oh as u64;
-    if total < 655_360 {
+    if w == 0 || h == 0 {
         return "1024x1024".to_string();
     }
-    if total > 8_294_400 {
-        let shrink = (8_294_400.0 / total as f64).sqrt();
-        ow = ((ow as f64 * shrink) / 16.0).floor() as u32 * 16;
-        oh = ((oh as f64 * shrink) / 16.0).floor() as u32 * 16;
+
+    let mut fw = w as f64;
+    let mut fh = h as f64;
+
+    // 1. Cap aspect ratio to 3:1 by clipping the long edge proportionally.
+    //    (Rare for normal photos.)
+    let ratio = fw / fh;
+    if ratio > 3.0 {
+        fw = fh * 3.0;
+    } else if ratio < 1.0 / 3.0 {
+        fh = fw * 3.0;
+    }
+
+    // 2. Scale uniformly so the long edge fits in [16, 3840] and total
+    //    pixels fits in [655_360, 8_294_400].
+    let max_edge = fw.max(fh);
+    let mut scale: f64 = 1.0;
+    if max_edge > 3840.0 {
+        scale = 3840.0 / max_edge;
+    }
+    let scaled_total = (fw * scale) * (fh * scale);
+    if scaled_total > 8_294_400.0 {
+        scale *= (8_294_400.0 / scaled_total).sqrt();
+    }
+    if scaled_total < 655_360.0 {
+        scale *= (655_360.0 / scaled_total).sqrt();
+    }
+
+    let mut ow = ((fw * scale) / 16.0).round() as u32 * 16;
+    let mut oh = ((fh * scale) / 16.0).round() as u32 * 16;
+
+    // 3. Final safety clamps in case rounding pushed us slightly out of range.
+    if ow > 3840 {
+        ow = 3840;
+    }
+    if oh > 3840 {
+        oh = 3840;
+    }
+    if ow < 256 {
+        ow = 256;
+    }
+    if oh < 256 {
+        oh = 256;
     }
 
     format!("{ow}x{oh}")
@@ -403,8 +437,8 @@ pub async fn call_image(
                     match client.get(url).send().await {
                         Ok(r) => match r.bytes().await {
                             Ok(bytes) => {
-                                let encoded = base64::engine::general_purpose::STANDARD
-                                    .encode(&bytes);
+                                let encoded =
+                                    base64::engine::general_purpose::STANDARD.encode(&bytes);
                                 return Ok(wrap_text_and_image_as_gemini("", &encoded));
                             }
                             Err(e) => last_error = format!("download image failed: {e}"),
@@ -424,8 +458,7 @@ pub async fn call_image(
             }
         }
         tries += 1;
-        let wait =
-            (2.0f64.powi(tries as i32)).min(10.0) + rand::thread_rng().gen_range(0.0..1.0);
+        let wait = (2.0f64.powi(tries as i32)).min(10.0) + rand::thread_rng().gen_range(0.0..1.0);
         eprintln!("  [openai/image] retry {tries}/{max_tries} after {wait:.1}s: {last_error}");
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
     }

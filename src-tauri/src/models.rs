@@ -122,6 +122,23 @@ pub struct Settings {
     pub prompts: HashMap<String, String>,
     #[serde(default)]
     pub provider_configs: HashMap<String, ProviderConfig>,
+    // Review Agent settings
+    #[serde(default)]
+    pub review_enabled: bool,
+    #[serde(default)]
+    pub review_auto_correct: bool,
+    #[serde(default = "default_review_threshold")]
+    pub review_threshold: f64,
+    #[serde(default = "default_review_max_retries")]
+    pub review_max_retries: u32,
+    #[serde(default)]
+    pub review_provider: String,
+    #[serde(default)]
+    pub review_model: String,
+    #[serde(default)]
+    pub review_base_url: String,
+    #[serde(default)]
+    pub review_api_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -144,6 +161,12 @@ fn default_text_timeout() -> u64 {
 fn default_image_timeout() -> u64 {
     300000
 }
+fn default_review_threshold() -> f64 {
+    7.0
+}
+fn default_review_max_retries() -> u32 {
+    1
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineModules {
@@ -155,6 +178,10 @@ pub struct PipelineModules {
     pub effects: bool,
     #[serde(default = "default_true")]
     pub agent_mode: bool,
+    #[serde(default = "default_true")]
+    pub save_intermediates: bool,
+    #[serde(default)]
+    pub combined_mode: bool,
 }
 
 fn default_true() -> bool {
@@ -168,6 +195,8 @@ impl Default for PipelineModules {
             background: false,
             effects: false,
             agent_mode: true,
+            save_intermediates: true,
+            combined_mode: false,
         }
     }
 }
@@ -195,6 +224,14 @@ impl Default for Settings {
             image_timeout_ms: 300000,
             prompts: crate::settings::default_prompts(),
             provider_configs: HashMap::new(),
+            review_enabled: false,
+            review_auto_correct: false,
+            review_threshold: default_review_threshold(),
+            review_max_retries: default_review_max_retries(),
+            review_provider: String::new(),
+            review_model: String::new(),
+            review_base_url: String::new(),
+            review_api_key: String::new(),
         }
     }
 }
