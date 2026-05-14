@@ -1196,6 +1196,122 @@ body {
   pointer-events: none;
 }
 
+/* ── Expandable workflow step / review ─────────────────── */
+
+details.wf-step {
+  display: block;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+details.wf-step > summary.wf-step-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 8px;
+  list-style: none;
+  border-radius: 4px;
+}
+
+details.wf-step > summary.wf-step-summary::-webkit-details-marker {
+  display: none;
+}
+
+details.wf-step > summary.wf-step-summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+details.wf-step[open] > summary.wf-step-summary::before {
+  transform: rotate(90deg);
+}
+
+details.wf-step > summary.wf-step-summary:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.wf-step-detail {
+  padding: 8px 12px 8px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid var(--border);
+  margin: 4px 0 4px 14px;
+}
+
+.wf-detail-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.wf-detail-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 64px;
+  font-size: 11px;
+}
+
+.wf-detail-value {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.wf-detail-multiline {
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.wf-detail-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+details.wf-review > summary.wf-review-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  cursor: pointer;
+  list-style: none;
+  padding: 4px 0;
+}
+
+details.wf-review > summary.wf-review-summary::-webkit-details-marker {
+  display: none;
+}
+
+details.wf-review > summary.wf-review-summary::before {
+  content: "▸ ";
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+details.wf-review[open] > summary.wf-review-summary::before {
+  transform: rotate(90deg);
+}
+
+.wf-review-detail {
+  padding: 8px 12px;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 2px solid var(--border);
+  border-radius: 0 4px 4px 0;
+}
+
 /* ── Collapsible workflow details ─────────────────────── */
 
 .wf-details {

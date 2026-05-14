@@ -285,50 +285,16 @@
         body.appendChild(noteEl);
       }
 
-      // Collapsible workflow plan (done state)
+      // Collapsible workflow plan (done state) — same renderer as polling
       if (node.metadata && node.metadata.workflow_plan) {
-        const plan = node.metadata.workflow_plan;
-        const wfStatus = (node.metadata.workflow_status) || {};
-        const stepCount = plan.nodes ? plan.nodes.length : 0;
-
-        const details = document.createElement("details");
-        details.className = "wf-details";
-
-        const summary = document.createElement("summary");
-        summary.textContent = `智能规划 · ${stepCount} 步骤`;
-        details.appendChild(summary);
-
-        if (plan.reasoning) {
-          const reasonEl = document.createElement("div");
-          reasonEl.className = "wf-reasoning";
-          reasonEl.textContent = plan.reasoning;
-          details.appendChild(reasonEl);
-        }
-
-        if (plan.nodes && plan.nodes.length > 0) {
-          const stepsEl = document.createElement("div");
-          stepsEl.className = "wf-steps";
-          for (const pn of plan.nodes) {
-            const st = wfStatus[pn.node_id] || {};
-            const stepStatus = st.status || "done";
-            const skillName = st.skill_name || pn.skill_id;
-            const prompt = st.skill_prompt || pn.skill_prompt || "";
-            const icons = { done: "✓", error: "✗", pending: "○", running: "◉" };
-            const icon = icons[stepStatus] || "✓";
-            const errorMsg = st.error ? ` — ${st.error}` : "";
-
-            const stepEl = document.createElement("div");
-            stepEl.className = `wf-step wf-step-${stepStatus}`;
-            stepEl.innerHTML =
-              `<span class="wf-step-icon">${icon}</span>` +
-              `<span class="wf-step-name">${escapeHtml(skillName)}</span>` +
-              `<span class="wf-step-prompt">${escapeHtml(prompt)}${escapeHtml(errorMsg)}</span>`;
-            stepsEl.appendChild(stepEl);
-          }
-          details.appendChild(stepsEl);
-        }
-
-        body.appendChild(details);
+        const wfWrap = document.createElement("div");
+        wfWrap.className = "wf-wrap";
+        wfWrap.innerHTML = renderWorkflowProgress({
+          workflow_plan: node.metadata.workflow_plan,
+          workflow_status: node.metadata.workflow_status || {},
+          review_history: node.metadata.review_history || [],
+        });
+        body.appendChild(wfWrap);
       }
 
       // Make non-last nodes clickable for "continue from here"
@@ -489,6 +455,7 @@
     const agentMode = !!document.querySelector('.module-toggle[data-module="agent_mode"].active');
     const combinedMode = !!document.querySelector('.module-toggle[data-module="combined_mode"].active');
     const saveIntermediates = !!document.querySelector('.module-toggle[data-module="save_intermediates"].active');
+    const reviewEnabled = !!document.querySelector('.module-toggle[data-module="review_enabled"].active');
     const modules = {
       retouch: !!document.querySelector('.module-toggle[data-module="retouch"].active'),
       background: !!document.querySelector('.module-toggle[data-module="background"].active'),
@@ -496,6 +463,7 @@
       agent_mode: agentMode,
       combined_mode: combinedMode,
       save_intermediates: saveIntermediates,
+      review_enabled: reviewEnabled,
     };
 
     // Collect reference images
@@ -522,6 +490,40 @@
   }
 
   // ── Workflow progress rendering ──────────────────────
+  function detailsKey(el) {
+    return el.dataset.stepId || el.dataset.reviewId || el.dataset.detailsKey || "";
+  }
+
+  function captureWfExpanded(containerEl) {
+    const opened = new Set();
+    const closed = new Set();
+    if (!containerEl) return { opened, closed, hasState: false };
+    const all = containerEl.querySelectorAll("details[data-step-id], details[data-review-id], details[data-details-key]");
+    all.forEach((d) => {
+      const k = detailsKey(d);
+      if (!k) return;
+      if (d.open) opened.add(k);
+      else closed.add(k);
+    });
+    return { opened, closed, hasState: all.length > 0 };
+  }
+
+  function restoreWfExpanded(containerEl, state) {
+    if (!containerEl || !state) return;
+    containerEl.querySelectorAll("details[data-step-id], details[data-review-id], details[data-details-key]").forEach((d) => {
+      const k = detailsKey(d);
+      if (!k) return;
+      if (state.opened.has(k)) d.open = true;
+      else if (state.closed.has(k)) d.open = false;
+    });
+  }
+
+  function renderWorkflowInto(el, status) {
+    const prev = captureWfExpanded(el);
+    el.innerHTML = renderWorkflowProgress(status);
+    if (prev.hasState) restoreWfExpanded(el, prev);
+  }
+
   function renderWorkflowProgress(status) {
     const wfStatus = status.workflow_status || {};
     const wfPlan = status.workflow_plan;
@@ -536,7 +538,7 @@
     };
 
     const nodes = wfPlan ? wfPlan.nodes : [];
-    let html = '<details class="wf-details" open>';
+    let html = '<details class="wf-details" data-details-key="root" open>';
     html += `<summary>智能规划 · ${nodes.length} 步骤</summary>`;
     html += '<div class="workflow-progress">';
     if (reasoning) {
@@ -552,16 +554,30 @@
         const icon = statusIcons[stepStatus] || "○";
         const errorMsg = st.error ? ` — ${st.error}` : "";
         const thumbPath = st.thumbnail_path || "";
+        const iconHtml = stepStatus === "running"
+          ? '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;"></span>'
+          : icon;
 
-        html += `<div class="wf-step wf-step-${stepStatus}">`;
-        html += `<span class="wf-step-icon">${stepStatus === "running" ? '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;"></span>' : icon}</span>`;
+        html += `<details class="wf-step wf-step-${stepStatus}" data-step-id="${escapeHtml(node.node_id)}">`;
+        html += `<summary class="wf-step-summary">`;
+        html += `<span class="wf-step-icon">${iconHtml}</span>`;
         html += `<span class="wf-step-name">${escapeHtml(skillName)}</span>`;
         html += `<span class="wf-step-prompt">${escapeHtml(prompt)}${escapeHtml(errorMsg)}</span>`;
         if (thumbPath && stepStatus === "done") {
           const thumbUrl = `file://${encodeURI(thumbPath)}`;
           html += `<img class="wf-step-thumb" src="${thumbUrl}" alt="中间结果" title="点击查看" onerror="this.style.display='none'">`;
         }
-        html += `</div>`;
+        html += `</summary>`;
+        html += `<div class="wf-step-detail">`;
+        html += `<div class="wf-detail-row"><span class="wf-detail-label">技能 ID</span><span class="wf-detail-value">${escapeHtml(node.skill_id)}</span></div>`;
+        if (node.depends_on && node.depends_on.length > 0) {
+          html += `<div class="wf-detail-row"><span class="wf-detail-label">依赖</span><span class="wf-detail-value">${escapeHtml(node.depends_on.join(", "))}</span></div>`;
+        }
+        html += `<div class="wf-detail-row"><span class="wf-detail-label">完整指令</span><span class="wf-detail-value wf-detail-multiline">${escapeHtml(prompt)}</span></div>`;
+        if (st.error) {
+          html += `<div class="wf-detail-row"><span class="wf-detail-label">错误</span><span class="wf-detail-value wf-detail-multiline" style="color:var(--error)">${escapeHtml(st.error)}</span></div>`;
+        }
+        html += `</div></details>`;
       }
     } else {
       // Fallback: iterate wfStatus keys
@@ -589,12 +605,30 @@
         const score = (r.overall_score || 0).toFixed(1);
         const pass = r.pass ? "✓" : "✗";
         const passCls = r.pass ? "pass" : "fail";
-        html += `<div class="wf-review wf-review-${passCls}">`;
+        const dims = r.dimensions || {};
+        html += `<details class="wf-review wf-review-${passCls}" data-review-id="${entry.attempt}">`;
+        html += `<summary class="wf-review-summary">`;
         html += `<span class="wf-review-score">审核 #${entry.attempt + 1} ${pass} ${score}/10</span>`;
         if (r.feedback) {
           html += `<span class="wf-review-feedback">${escapeHtml(r.feedback)}</span>`;
         }
-        html += "</div>";
+        html += `</summary>`;
+        html += `<div class="wf-review-detail">`;
+        html += `<div class="wf-detail-row"><span class="wf-detail-label">美学</span><span class="wf-detail-value">${(dims.aesthetic_quality ?? 0).toFixed(1)}/10</span></div>`;
+        html += `<div class="wf-detail-row"><span class="wf-detail-label">需求匹配</span><span class="wf-detail-value">${(dims.requirement_match ?? 0).toFixed(1)}/10</span></div>`;
+        html += `<div class="wf-detail-row"><span class="wf-detail-label">技术质量</span><span class="wf-detail-value">${(dims.technical_quality ?? 0).toFixed(1)}/10</span></div>`;
+        html += `<div class="wf-detail-row"><span class="wf-detail-label">一致性</span><span class="wf-detail-value">${(dims.consistency ?? 0).toFixed(1)}/10</span></div>`;
+        if (r.feedback) {
+          html += `<div class="wf-detail-row"><span class="wf-detail-label">完整反馈</span><span class="wf-detail-value wf-detail-multiline">${escapeHtml(r.feedback)}</span></div>`;
+        }
+        if (Array.isArray(r.suggestions) && r.suggestions.length > 0) {
+          html += `<div class="wf-detail-row"><span class="wf-detail-label">改进建议</span><ul class="wf-detail-list">`;
+          for (const s of r.suggestions) {
+            html += `<li>${escapeHtml(s)}</li>`;
+          }
+          html += `</ul></div>`;
+        }
+        html += `</div></details>`;
       }
       html += "</div>";
     }
@@ -615,7 +649,7 @@
         const el = document.getElementById(`processing-${nodeId}`);
         if (el) {
           if (status.workflow_status) {
-            el.innerHTML = renderWorkflowProgress(status);
+            renderWorkflowInto(el, status);
           } else {
             const msg =
               status.progress_total > 0
@@ -1122,6 +1156,17 @@
   // ── Init ───────────────────────────────────────────────
   async function init() {
     await waitForApi();
+
+    // Sync review toggle initial state from settings
+    try {
+      const s = await api().get_settings();
+      const reviewBtn = document.querySelector('.module-toggle[data-module="review_enabled"]');
+      if (reviewBtn && s && s.review_enabled) {
+        reviewBtn.classList.add("active");
+      }
+    } catch (e) {
+      // ignore — settings may not be initialized yet
+    }
 
     // Check for existing sessions
     const sessions = await api().list_sessions();
