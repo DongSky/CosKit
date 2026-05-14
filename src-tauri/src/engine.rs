@@ -486,7 +486,7 @@ async fn run_agent_workflow_with_review(
     initial_plan: planner::WorkflowPlan,
 ) -> Result<(Vec<u8>, String), String> {
     let review_settings = settings::load_settings();
-    let review_enabled = review_settings.review_enabled;
+    let review_enabled = modules.review_enabled;
     let auto_correct = review_settings.review_auto_correct;
     let threshold = review_settings.review_threshold;
 

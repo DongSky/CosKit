@@ -182,6 +182,8 @@ pub struct PipelineModules {
     pub save_intermediates: bool,
     #[serde(default)]
     pub combined_mode: bool,
+    #[serde(default)]
+    pub review_enabled: bool,
 }
 
 fn default_true() -> bool {
@@ -197,6 +199,7 @@ impl Default for PipelineModules {
             agent_mode: true,
             save_intermediates: true,
             combined_mode: false,
+            review_enabled: false,
         }
     }
 }

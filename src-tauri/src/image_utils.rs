@@ -32,7 +32,8 @@ pub fn image_to_base64_url(path: &str) -> Result<String, String> {
 
 /// Load a DynamicImage from raw bytes.
 pub fn load_image_from_bytes(data: &[u8]) -> Result<DynamicImage, String> {
-    let mut img = image::load_from_memory(data).map_err(|e| format!("failed to load image: {e}"))?;
+    let mut img =
+        image::load_from_memory(data).map_err(|e| format!("failed to load image: {e}"))?;
 
     // Apply EXIF orientation if present
     if let Some(orientation) = read_exif_orientation(data) {
