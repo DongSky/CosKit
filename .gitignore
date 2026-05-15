@@ -14,6 +14,9 @@
 /src-tauri/data/
 data/
 
+# Internal docs (kept local for AI tools / dev reference)
+/docs/
+
 # macOS
 .DS_Store
 **/.DS_Store
