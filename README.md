@@ -109,6 +109,18 @@ build_win.bat
 - **图像处理**：image-rs
 - **HTTP 客户端**：reqwest + tokio
 
+## 文档
+
+完整开发与架构文档位于 [`docs/`](docs/README.md) 目录：
+
+- [架构文档](docs/ARCHITECTURE.md) — 模块职责、数据流、目录结构
+- [智能规划工作流](docs/AGENT_WORKFLOW.md) — planner / DAG 执行 / 合并执行模式
+- [审核 Agent](docs/REVIEW_AGENT.md) — 多模型审核 + 自动修正回路
+- [内置技能](docs/SKILLS.md) — 10 个修图技能与提示词模板
+- [配置参考](docs/CONFIGURATION.md) — Settings 与 PipelineModules 字段
+- [前端文档](docs/FRONTEND.md) — UI 状态、轮询、可展开渲染
+- [更新日志](docs/CHANGELOG.md) — 版本演进
+
 ## License
 
 [MIT](LICENSE)
