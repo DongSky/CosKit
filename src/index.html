@@ -111,6 +111,7 @@
       <button class="settings-tab active" data-tab="api">API 配置</button>
       <button class="settings-tab" data-tab="review">审核 Agent</button>
       <button class="settings-tab" data-tab="prompts">系统提示词</button>
+      <button class="settings-tab" data-tab="storage">存储</button>
     </div>
 
     <div class="settings-body">
@@ -206,6 +207,24 @@
           </div>
           <p class="prompt-vars">变量: <code>{{TONE_CONSTRAINT}}</code> <code>{{EFFECT_PROMPT}}</code> <code>{{REFERENCE_IMAGES_HINT}}</code></p>
           <textarea id="s-prompt-effect" rows="6"></textarea>
+        </div>
+      </div>
+
+      <!-- Storage tab -->
+      <div class="settings-pane" id="pane-storage" style="display:none;">
+        <div class="settings-section">
+          <h3>缓存与中间结果存储</h3>
+          <p class="prompt-vars">所有会话数据和中间过程图像保存在此目录中。更换路径后将自动迁移已有数据。</p>
+          <label>当前存储路径</label>
+          <div class="storage-path-row">
+            <input type="text" id="s-data-dir" readonly class="storage-path-input">
+            <button id="btn-change-data-dir" class="btn-storage-action">更换目录</button>
+          </div>
+          <div class="storage-meta" id="storage-meta"></div>
+        </div>
+        <div class="settings-section">
+          <button id="btn-reset-data-dir" class="btn-storage-reset">恢复默认路径</button>
+          <p class="prompt-vars" id="storage-default-hint"></p>
         </div>
       </div>
     </div>

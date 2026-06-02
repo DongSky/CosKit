@@ -320,6 +320,89 @@ pub async fn get_default_settings() -> Result<Value, String> {
     }))
 }
 
+#[tauri::command]
+pub async fn get_data_dir() -> Result<Value, String> {
+    let current = settings::data_dir();
+    let default = settings::default_data_dir();
+    let s = settings::load_settings();
+    Ok(json!({
+        "current_path": current.to_string_lossy(),
+        "default_path": default.to_string_lossy(),
+        "is_custom": !s.custom_data_dir.is_empty(),
+    }))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn change_data_dir(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    new_path: Option<String>,
+) -> Result<Value, String> {
+    let target = match new_path {
+        Some(ref p) if !p.is_empty() => p.clone(),
+        _ => {
+            // Open folder picker
+            use tauri_plugin_dialog::DialogExt;
+            let folder = app.dialog().file().blocking_pick_folder();
+            match folder {
+                Some(path) => path
+                    .as_path()
+                    .ok_or("无效的文件夹路径")?
+                    .to_string_lossy()
+                    .to_string(),
+                None => return Ok(json!({"cancelled": true})),
+            }
+        }
+    };
+
+    let count = settings::migrate_data_dir(&target)?;
+
+    // Save the new custom_data_dir to settings
+    let mut s = settings::load_settings();
+    s.custom_data_dir = target.clone();
+    settings::save_settings(&s);
+
+    // Reload sessions from new location
+    let new_sessions = engine::load_all_sessions();
+    let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
+    *sessions = new_sessions;
+
+    Ok(json!({
+        "ok": true,
+        "new_path": target,
+        "migrated_count": count,
+    }))
+}
+
+#[tauri::command]
+pub async fn reset_data_dir(state: State<'_, AppState>) -> Result<Value, String> {
+    let default_path = settings::default_data_dir();
+
+    // If currently using custom dir, migrate back
+    let s = settings::load_settings();
+    if !s.custom_data_dir.is_empty() {
+        let default_str = default_path.to_string_lossy().to_string();
+        settings::migrate_data_dir(&default_str)
+            .map_err(|e| format!("迁移回默认目录失败: {e}"))?;
+    }
+
+    // Clear custom_data_dir in settings
+    settings::set_custom_data_dir("");
+    let mut s = settings::load_settings();
+    s.custom_data_dir = String::new();
+    settings::save_settings(&s);
+
+    // Reload sessions
+    let new_sessions = engine::load_all_sessions();
+    let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
+    *sessions = new_sessions;
+
+    Ok(json!({
+        "ok": true,
+        "path": default_path.to_string_lossy(),
+    }))
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_workflow_status(
     state: State<'_, AppState>,
