@@ -15,6 +15,9 @@ use engine::AppState;
 use gemini_client::GeminiClients;
 
 pub fn run() {
+    // Initialize custom data dir before loading sessions
+    settings::init_custom_data_dir();
+
     let state = AppState::new();
     engine::load_all_sessions_into(&state);
 
@@ -41,6 +44,9 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::get_default_settings,
+            commands::get_data_dir,
+            commands::change_data_dir,
+            commands::reset_data_dir,
             commands::get_workflow_status,
             commands::list_skills,
         ])

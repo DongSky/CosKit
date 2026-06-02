@@ -139,6 +139,8 @@ pub struct Settings {
     pub review_base_url: String,
     #[serde(default)]
     pub review_api_key: String,
+    #[serde(default)]
+    pub custom_data_dir: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -235,6 +237,7 @@ impl Default for Settings {
             review_model: String::new(),
             review_base_url: String::new(),
             review_api_key: String::new(),
+            custom_data_dir: String::new(),
         }
     }
 }

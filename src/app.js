@@ -64,6 +64,9 @@
     get_settings: [],
     save_settings: ["settings_val"],
     get_default_settings: [],
+    get_data_dir: [],
+    change_data_dir: ["new_path"],
+    reset_data_dir: [],
     get_workflow_status: ["session_id", "node_id"],
     list_skills: [],
   };
@@ -842,6 +845,9 @@
     document.getElementById("pane-api").style.display = tabName === "api" ? "" : "none";
     document.getElementById("pane-review").style.display = tabName === "review" ? "" : "none";
     document.getElementById("pane-prompts").style.display = tabName === "prompts" ? "" : "none";
+    document.getElementById("pane-storage").style.display = tabName === "storage" ? "" : "none";
+    // Load storage info when switching to storage tab
+    if (tabName === "storage") loadStorageInfo();
   }
 
   async function resetSinglePrompt(promptKey) {
@@ -853,6 +859,63 @@
     const elId = PROMPT_FIELDS[promptKey];
     if (elId && defaultPrompts[promptKey] !== undefined) {
       document.getElementById(elId).value = defaultPrompts[promptKey];
+    }
+  }
+
+  // ── Storage settings ──────────────────────────────────
+  async function loadStorageInfo() {
+    try {
+      const info = await api().get_data_dir();
+      document.getElementById("s-data-dir").value = info.current_path || "";
+      const meta = document.getElementById("storage-meta");
+      meta.textContent = info.is_custom ? "（自定义路径）" : "（默认路径）";
+      const hint = document.getElementById("storage-default-hint");
+      hint.textContent = "默认路径: " + (info.default_path || "");
+      document.getElementById("btn-reset-data-dir").disabled = !info.is_custom;
+    } catch (err) {
+      console.error("loadStorageInfo error:", err);
+    }
+  }
+
+  async function changeDataDir() {
+    const btn = document.getElementById("btn-change-data-dir");
+    btn.disabled = true;
+    btn.textContent = "迁移中...";
+    try {
+      const result = await api().change_data_dir(null);
+      if (result.cancelled) {
+        return;
+      }
+      if (result.ok) {
+        document.getElementById("s-data-dir").value = result.new_path;
+        document.getElementById("storage-meta").textContent =
+          `（自定义路径 · 已迁移 ${result.migrated_count} 项）`;
+        document.getElementById("btn-reset-data-dir").disabled = false;
+      }
+    } catch (err) {
+      alert("更换存储目录失败: " + err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "更换目录";
+    }
+  }
+
+  async function resetDataDir() {
+    if (!confirm("确定恢复默认存储路径？已有数据将迁移回默认位置。")) return;
+    const btn = document.getElementById("btn-reset-data-dir");
+    btn.disabled = true;
+    btn.textContent = "迁移中...";
+    try {
+      const result = await api().reset_data_dir();
+      if (result.ok) {
+        document.getElementById("s-data-dir").value = result.path;
+        document.getElementById("storage-meta").textContent = "（默认路径）";
+        btn.disabled = true;
+      }
+    } catch (err) {
+      alert("恢复默认路径失败: " + err);
+    } finally {
+      btn.textContent = "恢复默认路径";
     }
   }
 
@@ -1068,6 +1131,10 @@
   document.querySelectorAll(".btn-reset-prompt").forEach((btn) => {
     btn.addEventListener("click", () => resetSinglePrompt(btn.dataset.prompt));
   });
+
+  // Storage tab buttons
+  document.getElementById("btn-change-data-dir").addEventListener("click", changeDataDir);
+  document.getElementById("btn-reset-data-dir").addEventListener("click", resetDataDir);
 
   // Module toggle buttons
   function updateLegacyToggleDimming() {

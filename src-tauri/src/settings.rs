@@ -1,10 +1,25 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::RwLock;
 
 use crate::models::Settings;
 
+static CUSTOM_DATA_DIR: RwLock<Option<String>> = RwLock::new(None);
+
+/// Set the custom data dir override (called on startup after loading settings).
+pub fn set_custom_data_dir(dir: &str) {
+    let mut lock = CUSTOM_DATA_DIR.write().unwrap();
+    if dir.is_empty() {
+        *lock = None;
+    } else {
+        *lock = Some(dir.to_string());
+    }
+}
+
 /// Return the platform-standard data directory for CosKit.
+///
+/// If a custom_data_dir is configured, use that instead.
 ///
 /// - macOS:   `~/Library/Application Support/CosKit/`
 /// - Windows: `%APPDATA%/CosKit/`
@@ -12,6 +27,22 @@ use crate::models::Settings;
 ///
 /// Falls back to `<exe_parent>/data/` if home directory cannot be determined.
 pub fn data_dir() -> PathBuf {
+    // Check custom override
+    if let Ok(lock) = CUSTOM_DATA_DIR.read() {
+        if let Some(ref custom) = *lock {
+            if !custom.is_empty() {
+                let p = PathBuf::from(custom);
+                let _ = fs::create_dir_all(&p);
+                return p;
+            }
+        }
+    }
+
+    default_data_dir()
+}
+
+/// The platform default data directory (ignoring custom override).
+pub fn default_data_dir() -> PathBuf {
     let dir = if cfg!(target_os = "macos") {
         dirs::home_dir().map(|h| h.join("Library/Application Support/CosKit"))
     } else if cfg!(target_os = "windows") {
@@ -19,12 +50,10 @@ pub fn data_dir() -> PathBuf {
             .ok()
             .map(|a| PathBuf::from(a).join("CosKit"))
     } else {
-        // Linux / other
         dirs::home_dir().map(|h| h.join(".local/share/CosKit"))
     };
 
     let dir = dir.unwrap_or_else(|| {
-        // Fallback: exe_parent/data/
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.to_path_buf()))
@@ -37,7 +66,7 @@ pub fn data_dir() -> PathBuf {
 }
 
 fn settings_path() -> PathBuf {
-    data_dir().join("settings.json")
+    default_data_dir().join("settings.json")
 }
 
 pub fn default_prompts() -> HashMap<String, String> {
@@ -197,6 +226,9 @@ pub fn load_settings() -> Settings {
                 if let Some(v) = saved.get("review_api_key").and_then(|v| v.as_str()) {
                     settings.review_api_key = v.to_string();
                 }
+                if let Some(v) = saved.get("custom_data_dir").and_then(|v| v.as_str()) {
+                    settings.custom_data_dir = v.to_string();
+                }
                 settings
             }
             Err(e) => {
@@ -217,4 +249,71 @@ pub fn save_settings(settings: &Settings) {
     if let Ok(json) = serde_json::to_string_pretty(settings) {
         let _ = fs::write(path, json);
     }
+}
+
+/// Initialize custom data dir from saved settings. Call once on startup.
+pub fn init_custom_data_dir() {
+    let settings = load_settings();
+    set_custom_data_dir(&settings.custom_data_dir);
+}
+
+/// Migrate all session data from the current data_dir to a new directory.
+/// Returns Ok(count) with number of items migrated, or Err on failure.
+pub fn migrate_data_dir(new_dir: &str) -> Result<u32, String> {
+    let new_path = PathBuf::from(new_dir);
+    if new_dir.is_empty() {
+        return Err("目标路径不能为空".to_string());
+    }
+
+    fs::create_dir_all(&new_path).map_err(|e| format!("无法创建目标目录: {e}"))?;
+
+    let old_dir = data_dir();
+    if old_dir == new_path {
+        return Ok(0);
+    }
+
+    let mut count = 0u32;
+    if old_dir.exists() {
+        let entries = fs::read_dir(&old_dir).map_err(|e| format!("无法读取源目录: {e}"))?;
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+            // Skip settings.json — it stays in the default location
+            if name_str == "settings.json" {
+                continue;
+            }
+            let src = entry.path();
+            let dst = new_path.join(&name);
+            if dst.exists() {
+                continue;
+            }
+            if src.is_dir() {
+                copy_dir_recursive(&src, &dst)?;
+                count += 1;
+            } else {
+                fs::copy(&src, &dst).map_err(|e| format!("复制文件失败 {}: {e}", name_str))?;
+                count += 1;
+            }
+        }
+    }
+
+    // Update the runtime override
+    set_custom_data_dir(new_dir);
+
+    Ok(count)
+}
+
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("创建目录失败: {e}"))?;
+    let entries = fs::read_dir(src).map_err(|e| format!("读取目录失败: {e}"))?;
+    for entry in entries.flatten() {
+        let s = entry.path();
+        let d = dst.join(entry.file_name());
+        if s.is_dir() {
+            copy_dir_recursive(&s, &d)?;
+        } else {
+            fs::copy(&s, &d).map_err(|e| format!("复制失败: {e}"))?;
+        }
+    }
+    Ok(())
 }
