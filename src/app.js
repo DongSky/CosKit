@@ -15,6 +15,34 @@
   let viewerNodeId = null; // tracked for export
   let referenceImages = []; // Array of { dataUrl: string, description: string }
 
+  // ── Theme ────────────────────────────────────────────────
+  const THEME_KEY = "coskit-theme";
+  const darkMQ = window.matchMedia("(prefers-color-scheme: dark)");
+  let themeManual = localStorage.getItem(THEME_KEY); // null = auto
+
+  function applyTheme(theme) {
+    document.documentElement.dataset.theme = theme;
+    document.getElementById("icon-sun").style.display = theme === "dark" ? "none" : "";
+    document.getElementById("icon-moon").style.display = theme === "dark" ? "" : "none";
+  }
+
+  function resolveTheme() {
+    return themeManual || (darkMQ.matches ? "dark" : "light");
+  }
+
+  applyTheme(resolveTheme());
+  darkMQ.addEventListener("change", () => {
+    if (!themeManual) applyTheme(resolveTheme());
+  });
+
+  function toggleTheme() {
+    const current = resolveTheme();
+    const next = current === "dark" ? "light" : "dark";
+    themeManual = next;
+    localStorage.setItem(THEME_KEY, next);
+    applyTheme(next);
+  }
+
   // ── DOM refs ───────────────────────────────────────────
   const welcome = document.getElementById("welcome");
   const messagesEl = document.getElementById("messages");
@@ -1070,6 +1098,7 @@
   // History & Help events
   btnHistory.addEventListener("click", openHistoryModal);
   btnHelp.addEventListener("click", openHelpModal);
+  document.getElementById("btn-theme").addEventListener("click", toggleTheme);
   historyClose.addEventListener("click", closeHistoryModal);
   helpClose.addEventListener("click", closeHelpModal);
   historyModal.addEventListener("click", (e) => {
