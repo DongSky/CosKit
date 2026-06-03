@@ -1,21 +1,63 @@
 # Build artifacts
 /src-tauri/target/
 /node_modules/
+dist/
+build/
+.gradle/
+.cxx/
 
-# Tauri generated schemas
+# Tauri generated projects (Android / iOS scaffolding)
 /src-tauri/gen/
+
+# Local build scripts (machine-specific)
+/build_android.sh
 
 # Environment & secrets
 .env
 .env.*
 *.key
+*.pem
+
+# Signing keys / keystores (Android, iOS, code signing)
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.mobileprovision
+*.cer
+keystore.properties
+
+# Compiled artifacts that may land outside target/
+*.apk
+*.aab
+*.ipa
+*.dmg
+*.app/
+*.exe
+*.msi
+*.deb
+*.rpm
+*.AppImage
 
 # Runtime data (contains user settings with API keys)
 /src-tauri/data/
 data/
 
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Caches
+.cache/
+.gradle/
+
 # Internal docs (kept local for AI tools / dev reference)
 /docs/
+
+# Local Claude / agent state
+.claude/settings.local.json
 
 # macOS
 .DS_Store

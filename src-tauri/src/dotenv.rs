@@ -46,7 +46,8 @@ pub fn load_dotenv_files() {
         }
     }
 
-    // 4. Home directory
+    // 4. Home directory (desktop only)
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     if let Some(home) = dirs::home_dir() {
         load_dotenv(&home.join(".env"));
     }

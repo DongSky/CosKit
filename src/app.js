@@ -43,6 +43,49 @@
     applyTheme(next);
   }
 
+  // ── Platform ─────────────────────────────────────────────
+  function detectPlatform() {
+    const ua = navigator.userAgent;
+    if (/iPhone|iPod/.test(ua)) return "ios";
+    if (/iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)) return "ipados";
+    if (/Android/.test(ua)) return "android";
+    return "desktop";
+  }
+  const platform = detectPlatform();
+  document.documentElement.dataset.platform = platform;
+  const isMobile = platform === "ios" || platform === "android";
+  if (isMobile) document.documentElement.classList.add("is-mobile");
+
+  // ── Drawer ───────────────────────────────────────────────
+  function openDrawer() {
+    document.getElementById("drawer").classList.add("drawer-open");
+    document.getElementById("drawer-backdrop").classList.add("drawer-backdrop-show");
+  }
+  function closeDrawer() {
+    document.getElementById("drawer").classList.remove("drawer-open");
+    document.getElementById("drawer-backdrop").classList.remove("drawer-backdrop-show");
+  }
+  function handleDrawerAction(action) {
+    closeDrawer();
+    switch (action) {
+      case "new": document.getElementById("btn-new-session").click(); break;
+      case "history": document.getElementById("btn-history").click(); break;
+      case "settings": document.getElementById("btn-settings").click(); break;
+      case "theme": toggleTheme(); break;
+      case "help": document.getElementById("btn-help").click(); break;
+    }
+  }
+
+  // ── Mobile keyboard adapt ────────────────────────────────
+  if (isMobile && window.visualViewport) {
+    const inputBar = () => document.getElementById("input-bar");
+    window.visualViewport.addEventListener("resize", () => {
+      const offset = window.innerHeight - window.visualViewport.height;
+      const bar = inputBar();
+      if (bar) bar.style.transform = offset > 0 ? `translateY(-${offset}px)` : "";
+    });
+  }
+
   // ── DOM refs ───────────────────────────────────────────
   const welcome = document.getElementById("welcome");
   const messagesEl = document.getElementById("messages");
@@ -79,6 +122,7 @@
   const { invoke } = window.__TAURI__.core;
 
   const _SIGNATURES = {
+    pick_image: [],
     create_session: ["image_base64", "filename"],
     get_session: ["session_id"],
     list_sessions: [],
@@ -138,7 +182,14 @@
   let uploading = false;
 
   async function handleUpload(file) {
-    if (!file || !file.type.startsWith("image/")) return;
+    if (!file) return;
+    // Android photo picker may return File objects with empty .type; fall back to name extension.
+    const isImageType = file.type && file.type.startsWith("image/");
+    const isImageExt = /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?|avif)$/i.test(file.name || "");
+    if (!isImageType && !isImageExt) {
+      console.error("[CosKit] rejected non-image upload:", file.type, file.name);
+      return;
+    }
     if (uploading) return;
     uploading = true;
 
@@ -158,6 +209,41 @@
       editFromNodeId = null;
       await refreshSession();
       showChatMode();
+    } finally {
+      uploading = false;
+      welcome.style.pointerEvents = "";
+      welcome.style.opacity = "";
+    }
+  }
+
+  async function pickAndUpload() {
+    if (uploading) return;
+    try {
+      console.log("[CosKit] pickAndUpload: invoking pick_image");
+      const result = await api().pick_image();
+      console.log("[CosKit] pick_image result:", JSON.stringify(result).slice(0, 200));
+      if (!result || result.cancelled) return;
+      if (result.error) {
+        alert("选择图片失败: " + result.error);
+        return;
+      }
+      uploading = true;
+      welcome.style.pointerEvents = "none";
+      welcome.style.opacity = "0.5";
+      console.log("[CosKit] creating session, filename=" + result.filename);
+      const sessionResult = await api().create_session(result.data_url, result.filename);
+      console.log("[CosKit] create_session result:", JSON.stringify(sessionResult).slice(0, 200));
+      if (sessionResult.error) {
+        alert("创建会话失败: " + sessionResult.error);
+        return;
+      }
+      currentSessionId = sessionResult.session_id;
+      editFromNodeId = null;
+      await refreshSession();
+      showChatMode();
+    } catch (err) {
+      console.error("[CosKit] pickAndUpload error:", err);
+      alert("上传失败: " + (err && err.toString ? err.toString() : err));
     } finally {
       uploading = false;
       welcome.style.pointerEvents = "";
@@ -1055,6 +1141,51 @@
     e.target.value = "";
   });
 
+  // Mobile: WebView's <input type="file"> is unreliable. Remove the inputs
+  // entirely from upload labels and use Tauri dialog plugin instead.
+  if (isMobile) {
+    // Remove file inputs so label clicks can't accidentally fire them
+    const inputsToRemove = ["file-input", "file-input-inline", "ref-file-input"];
+    inputsToRemove.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && el.parentNode) el.parentNode.removeChild(el);
+    });
+
+    // Convert labels to plain divs (labels with no for-target are still clickable)
+    document.getElementById("upload-zone").addEventListener("click", (e) => {
+      console.log("[CosKit] upload-zone click");
+      e.preventDefault();
+      e.stopPropagation();
+      pickAndUpload();
+    });
+    document.querySelector(".attach-btn").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      pickAndUpload();
+    });
+    // Reference image: use Tauri pick_image instead of <input type=file>
+    const refBtn = document.querySelector(".ref-add-btn");
+    if (refBtn) {
+      refBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const result = await api().pick_image();
+          if (!result || result.cancelled) return;
+          if (result.error) {
+            alert("选择参考图失败: " + result.error);
+            return;
+          }
+          referenceImages.push({ dataUrl: result.data_url, description: "" });
+          renderReferenceImages();
+        } catch (err) {
+          console.error("[CosKit] ref pick error:", err);
+          alert("选择参考图失败: " + (err && err.toString ? err.toString() : err));
+        }
+      });
+    }
+  }
+
   // Reference image file input
   refFileInput.addEventListener("change", async (e) => {
     for (const file of e.target.files) {
@@ -1099,6 +1230,12 @@
   btnHistory.addEventListener("click", openHistoryModal);
   btnHelp.addEventListener("click", openHelpModal);
   document.getElementById("btn-theme").addEventListener("click", toggleTheme);
+  document.getElementById("btn-hamburger").addEventListener("click", openDrawer);
+  document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+  document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
+  document.querySelectorAll(".drawer-item").forEach((btn) => {
+    btn.addEventListener("click", () => handleDrawerAction(btn.dataset.action));
+  });
   historyClose.addEventListener("click", closeHistoryModal);
   helpClose.addEventListener("click", closeHelpModal);
   historyModal.addEventListener("click", (e) => {
