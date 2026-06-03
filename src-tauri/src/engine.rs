@@ -48,7 +48,48 @@ pub fn load_session(session_id: &str) -> Option<Session> {
         return None;
     }
     let text = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&text).ok()
+    let mut session: Session = serde_json::from_str(&text).ok()?;
+    if repair_session_paths(&mut session) {
+        save_session(&session);
+    }
+    Some(session)
+}
+
+/// Rewrite stale absolute paths in a session.
+///
+/// Earlier versions stored absolute paths in `image_path`/`thumbnail_path`.
+/// On iOS the sandbox container UUID changes on every reinstall/upgrade, so
+/// those absolute paths become invalid even though the files were migrated
+/// alongside the rest of the data dir. Rebuild any missing path as
+/// `data_dir/<session_id>/<basename>` so historical sessions keep working.
+///
+/// Returns true if any path was rewritten (so the caller can persist).
+fn repair_session_paths(session: &mut Session) -> bool {
+    let sdir = data_dir().join(&session.id);
+    let mut changed = false;
+    for node in session.nodes.values_mut() {
+        if !node.image_path.is_empty() && !std::path::Path::new(&node.image_path).exists() {
+            if let Some(name) = std::path::Path::new(&node.image_path).file_name() {
+                let candidate = sdir.join(name);
+                if candidate.exists() {
+                    node.image_path = candidate.to_string_lossy().to_string();
+                    changed = true;
+                }
+            }
+        }
+        if !node.thumbnail_path.is_empty()
+            && !std::path::Path::new(&node.thumbnail_path).exists()
+        {
+            if let Some(name) = std::path::Path::new(&node.thumbnail_path).file_name() {
+                let candidate = sdir.join(name);
+                if candidate.exists() {
+                    node.thumbnail_path = candidate.to_string_lossy().to_string();
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
 }
 
 pub fn load_all_sessions() -> HashMap<String, Session> {

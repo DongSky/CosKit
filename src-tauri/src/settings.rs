@@ -6,6 +6,17 @@ use std::sync::RwLock;
 use crate::models::Settings;
 
 static CUSTOM_DATA_DIR: RwLock<Option<String>> = RwLock::new(None);
+static APP_DATA_DIR: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Set the resolved app data directory (called once at startup from
+/// the Tauri builder where an AppHandle is available). On mobile the
+/// process HOME points at "/" which is read-only, so we must use the
+/// platform-resolved app-private dir instead.
+pub fn set_app_data_dir(dir: PathBuf) {
+    if let Ok(mut lock) = APP_DATA_DIR.write() {
+        *lock = Some(dir);
+    }
+}
 
 /// Set the custom data dir override (called on startup after loading settings).
 pub fn set_custom_data_dir(dir: &str) {
@@ -43,15 +54,50 @@ pub fn data_dir() -> PathBuf {
 
 /// The platform default data directory (ignoring custom override).
 pub fn default_data_dir() -> PathBuf {
-    let dir = if cfg!(target_os = "macos") {
-        dirs::home_dir().map(|h| h.join("Library/Application Support/CosKit"))
-    } else if cfg!(target_os = "windows") {
-        std::env::var("APPDATA")
+    // Prefer the runtime-resolved app data dir (set by Tauri at startup).
+    // On Android/iOS this is the app-private writable directory.
+    if let Ok(lock) = APP_DATA_DIR.read() {
+        if let Some(ref p) = *lock {
+            let _ = fs::create_dir_all(p);
+            return p.clone();
+        }
+    }
+
+    let dir: Option<PathBuf>;
+
+    #[cfg(target_os = "ios")]
+    {
+        // iOS sandbox: ~/Documents/CosKit
+        dir = std::env::var("HOME")
             .ok()
-            .map(|a| PathBuf::from(a).join("CosKit"))
-    } else {
-        dirs::home_dir().map(|h| h.join(".local/share/CosKit"))
-    };
+            .map(|h| PathBuf::from(h).join("Documents/CosKit"));
+    }
+    #[cfg(target_os = "android")]
+    {
+        // Fallback only — should be overridden by set_app_data_dir().
+        dir = std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join("CosKit"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        dir = dirs::home_dir().map(|h| h.join("Library/Application Support/CosKit"));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        dir = std::env::var("APPDATA")
+            .ok()
+            .map(|a| PathBuf::from(a).join("CosKit"));
+    }
+    #[cfg(all(
+        not(target_os = "ios"),
+        not(target_os = "android"),
+        not(target_os = "macos"),
+        not(target_os = "windows")
+    ))]
+    {
+        dir = dirs::home_dir().map(|h| h.join(".local/share/CosKit"));
+    }
 
     let dir = dir.unwrap_or_else(|| {
         std::env::current_exe()

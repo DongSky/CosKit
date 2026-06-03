@@ -13,6 +13,98 @@ fn node_to_value(node: &EditNode) -> Value {
     node.to_dict()
 }
 
+fn sniff_image_mime(bytes: &[u8]) -> Option<String> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("image/png".into())
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("image/jpeg".into())
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("image/webp".into())
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif".into())
+    } else if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        // HEIC/HEIF/AVIF — engine downstream will normalize
+        let brand = &bytes[8..12];
+        if brand == b"heic" || brand == b"heix" || brand == b"mif1" || brand == b"msf1" {
+            Some("image/heic".into())
+        } else if brand == b"avif" {
+            Some("image/avif".into())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+pub async fn pick_image(app: tauri::AppHandle) -> Result<Value, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use tauri_plugin_fs::FsExt;
+
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter("Images", &["jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "heif", "avif"])
+        .pick_file(move |file_path| {
+            let _ = tx.send(file_path);
+        });
+
+    let file = rx.await.map_err(|e| e.to_string())?;
+
+    match file {
+        Some(path) => {
+            // Extract a display filename. For content:// URIs we may not have one;
+            // fall back to a timestamp-based name.
+            let filename = match &path {
+                tauri_plugin_fs::FilePath::Path(p) => p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "image.jpg".to_string()),
+                tauri_plugin_fs::FilePath::Url(url) => {
+                    // content://media/...; try to derive a name from the path's last segment
+                    url.path_segments()
+                        .and_then(|s| s.last().map(|s| s.to_string()))
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| "image.jpg".to_string())
+                }
+            };
+
+            // FsExt::read handles both path and content:// URIs on Android
+            let data = app
+                .fs()
+                .read(path)
+                .map_err(|e| format!("failed to read file: {e}"))?;
+
+            // Sniff mime from magic bytes; content:// URIs often lack extensions
+            let mime = sniff_image_mime(&data).unwrap_or_else(|| {
+                let lower = filename.to_lowercase();
+                if lower.ends_with(".png") {
+                    "image/png"
+                } else if lower.ends_with(".webp") {
+                    "image/webp"
+                } else if lower.ends_with(".gif") {
+                    "image/gif"
+                } else {
+                    "image/jpeg"
+                }
+                .to_string()
+            });
+
+            let b64 = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &data,
+            );
+            let data_url = format!("data:{};base64,{}", mime, b64);
+            Ok(json!({
+                "data_url": data_url,
+                "filename": filename,
+            }))
+        }
+        None => Ok(json!({"cancelled": true})),
+    }
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn create_session(
     state: State<'_, AppState>,
@@ -279,9 +371,39 @@ pub async fn export_image(
 
     match file_path {
         Some(path) => {
-            let dest = path.as_path().ok_or("invalid save path")?;
-            std::fs::copy(&src, dest).map_err(|e| format!("failed to copy image: {e}"))?;
-            Ok(json!({"ok": true, "path": dest.to_string_lossy()}))
+            use std::io::Write;
+            use tauri_plugin_fs::{FsExt, OpenOptions};
+
+            // Read source bytes from our private storage
+            let data = std::fs::read(&src)
+                .map_err(|e| format!("failed to read source image: {e}"))?;
+
+            // Open destination via FsExt — handles both Path (desktop) and
+            // content:// URIs (Android Storage Access Framework).
+            let mut opts = OpenOptions::new();
+            opts.read(false)
+                .write(true)
+                .create(true)
+                .truncate(true);
+            let mut file = app
+                .fs()
+                .open(path.clone(), opts)
+                .map_err(|e| format!("failed to open destination: {e}"))?;
+            file.write_all(&data)
+                .map_err(|e| format!("failed to write image: {e}"))?;
+            // Force durable write and release fd. Critical on Android:
+            // MediaProvider snapshots the file size at fd close, so we
+            // must finish all writes before drop or Files apps will
+            // observe a partial size from the index.
+            file.sync_all().ok();
+            drop(file);
+
+            let display = match &path {
+                tauri_plugin_fs::FilePath::Path(p) => p.to_string_lossy().to_string(),
+                tauri_plugin_fs::FilePath::Url(u) => u.to_string(),
+            };
+
+            Ok(json!({"ok": true, "path": display}))
         }
         None => Ok(json!({"cancelled": true})),
     }
@@ -338,6 +460,13 @@ pub async fn change_data_dir(
     state: State<'_, AppState>,
     new_path: Option<String>,
 ) -> Result<Value, String> {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        let _ = (app, state, new_path);
+        return Ok(json!({"ok": false, "error": "mobile platforms use sandboxed storage"}));
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
     let target = match new_path {
         Some(ref p) if !p.is_empty() => p.clone(),
         _ => {
@@ -372,10 +501,18 @@ pub async fn change_data_dir(
         "new_path": target,
         "migrated_count": count,
     }))
+    }
 }
 
 #[tauri::command]
 pub async fn reset_data_dir(state: State<'_, AppState>) -> Result<Value, String> {
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        let _ = state;
+        return Ok(json!({"ok": false, "error": "mobile platforms use sandboxed storage"}));
+    }
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
+    {
     let default_path = settings::default_data_dir();
 
     // If currently using custom dir, migrate back
@@ -401,6 +538,7 @@ pub async fn reset_data_dir(state: State<'_, AppState>) -> Result<Value, String>
         "ok": true,
         "path": default_path.to_string_lossy(),
     }))
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]

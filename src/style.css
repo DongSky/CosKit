@@ -1,24 +1,45 @@
 /* ================================================================
-   CosKit — Dark theme, chat-style UI
+   CosKit — Warm film tone, dual-theme UI
    ================================================================ */
 
-:root {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-tertiary: #0f3460;
-  --bg-card: #1e2a4a;
-  --text-primary: #e0e0e0;
-  --text-secondary: #a0a0b0;
-  --text-muted: #707088;
-  --accent: #6c63ff;
-  --accent-hover: #5a52e0;
-  --user-bubble: #2d3a5e;
-  --bot-bubble: #1e2a4a;
-  --border: #2a2a4a;
-  --error: #ff6b6b;
-  --success: #51cf66;
+:root, [data-theme="light"] {
+  --bg-primary: #F5F1E8;
+  --bg-secondary: #EDE6D6;
+  --bg-tertiary: #E2D9C8;
+  --bg-card: #FFFFFF;
+  --text-primary: #2D2A24;
+  --text-secondary: #5C5549;
+  --text-muted: #8C8478;
+  --accent: #7C6C5A;
+  --accent-hover: #5E503C;
+  --user-bubble: #E8E0D2;
+  --bot-bubble: #FFFFFF;
+  --border: #D4CBBC;
+  --error: #C0392B;
+  --success: #27AE60;
   --radius: 12px;
   --radius-sm: 8px;
+  --shadow-sm: 0 1px 3px rgba(45, 42, 36, 0.06);
+  --shadow-md: 0 4px 12px rgba(45, 42, 36, 0.08);
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1F1B16;
+  --bg-secondary: #29241E;
+  --bg-tertiary: #342E26;
+  --bg-card: #2D2820;
+  --text-primary: #EDE6D6;
+  --text-secondary: #B8AE9E;
+  --text-muted: #7A7168;
+  --accent: #C9A876;
+  --accent-hover: #A6894F;
+  --user-bubble: #3A332A;
+  --bot-bubble: #2D2820;
+  --border: #4A4238;
+  --error: #E74C3C;
+  --success: #2ECC71;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 * {
@@ -36,6 +57,24 @@ body {
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+}
+
+/* File input overlay: invisible but covers parent label so the user's
+   tap lands directly on the <input>, not on the label. Required for
+   Android WebView, where label-click proxy to hidden input is unreliable. */
+.file-input-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+
+/* Parents need to be positioned for the overlay to fill them */
+.upload-zone, .attach-btn, .ref-add-btn {
+  position: relative;
 }
 
 /* ── Header ──────────────────────────────────────────────── */
@@ -86,28 +125,36 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .header-icon-btn:hover {
-  background: var(--accent);
-  color: #fff;
+  background: var(--bg-tertiary);
+  color: var(--accent-hover);
   border-color: var(--accent);
 }
 
 #btn-new-session {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-card);
   border: none;
-  padding: 6px 16px;
-  border-radius: var(--radius-sm);
+  padding: 7px 18px;
+  border-radius: 999px;
   cursor: pointer;
   font-size: 13px;
-  transition: background 0.2s;
+  font-weight: 500;
+  letter-spacing: 0.3px;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 #btn-new-session:hover {
   background: var(--accent-hover);
+  box-shadow: var(--shadow-md);
+}
+
+#btn-new-session:active {
+  transform: translateY(1px);
 }
 
 /* ── Chat area ───────────────────────────────────────────── */
@@ -137,12 +184,12 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 320px;
+  width: min(320px, 80vw);
   height: 180px;
   border: 2px dashed var(--border);
   border-radius: var(--radius);
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
   gap: 12px;
   font-size: 14px;
   color: var(--text-muted);
@@ -150,7 +197,8 @@ body {
 
 .upload-zone:hover {
   border-color: var(--accent);
-  background: rgba(108, 99, 255, 0.05);
+  background: var(--bg-secondary);
+  color: var(--accent-hover);
 }
 
 .upload-icon {
@@ -231,6 +279,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .card-header {
@@ -238,7 +287,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 8px 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
   font-size: 13px;
   font-weight: 600;
@@ -270,7 +319,7 @@ body {
 
 .branch-nav button:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-card);
   border-color: var(--accent);
 }
 
@@ -399,18 +448,19 @@ body {
   border-radius: 14px;
   font-size: 12px;
   cursor: pointer;
-  transition: background 0.2s, color 0.2s, border-color 0.2s;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .module-toggle:hover {
   color: var(--text-secondary);
-  border-color: var(--text-muted);
+  border-color: var(--accent);
 }
 
 .module-toggle.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-card);
   border-color: var(--accent);
+  box-shadow: var(--shadow-sm);
 }
 
 .input-row {
@@ -532,18 +582,19 @@ body {
 
 #prompt-input {
   flex: 1;
-  background: var(--bg-primary);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 10px 14px;
   color: var(--text-primary);
   font-size: 14px;
   outline: none;
-  transition: border-color 0.2s;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 #prompt-input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-tertiary);
 }
 
 #prompt-input::placeholder {
@@ -552,22 +603,31 @@ body {
 
 #btn-send {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-card);
   border: none;
   padding: 10px 20px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 14px;
-  transition: background 0.2s;
+  font-weight: 500;
+  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  box-shadow: var(--shadow-sm);
 }
 
 #btn-send:hover {
   background: var(--accent-hover);
+  box-shadow: var(--shadow-md);
+}
+
+#btn-send:active {
+  transform: translateY(1px);
 }
 
 #btn-send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* Edit-from indicator */
@@ -640,7 +700,8 @@ body {
 /* ── Scrollbar ───────────────────────────────────────────── */
 
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -649,21 +710,67 @@ body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ── Text selection ──────────────────────────────────────── */
+
+::selection {
+  background: var(--accent);
+  color: var(--bg-card);
+}
+
+/* ── Focus visible ───────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
 }
 
 /* ── Responsive ──────────────────────────────────────────── */
+
+@media (min-width: 1200px) {
+  .messages {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+}
+
+@media (max-width: 900px) {
+  .msg {
+    max-width: 90%;
+  }
+  .msg-bot {
+    max-width: 95%;
+  }
+}
 
 @media (max-width: 600px) {
   .msg {
     max-width: 95%;
   }
   .msg-bot {
-    max-width: 95%;
+    max-width: 100%;
   }
   #input-bar {
     padding: 8px 12px;
@@ -672,6 +779,12 @@ body {
     width: 95vw;
     max-height: 90vh;
   }
+  .settings-tabs {
+    overflow-x: auto;
+  }
+  .settings-tab {
+    flex-shrink: 0;
+  }
 }
 
 /* ── Settings modal ─────────────────────────────────────── */
@@ -679,7 +792,9 @@ body {
 .settings-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(45, 42, 36, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -687,14 +802,15 @@ body {
 }
 
 .settings-dialog {
-  background: var(--bg-secondary);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  width: 600px;
+  width: min(600px, 90vw);
   max-height: 80vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  box-shadow: var(--shadow-md);
 }
 
 .settings-header {
@@ -726,7 +842,7 @@ body {
 }
 
 .settings-close:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-tertiary);
 }
 
 /* Tabs */
@@ -891,17 +1007,17 @@ body {
 .btn-storage-action {
   background: var(--accent);
   border: none;
-  color: #fff;
+  color: var(--bg-card);
   padding: 8px 14px;
   border-radius: var(--radius-sm);
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
-  transition: opacity 0.15s;
+  transition: background 0.15s ease, opacity 0.15s ease;
 }
 
 .btn-storage-action:hover {
-  opacity: 0.85;
+  background: var(--accent-hover);
 }
 
 .btn-storage-action:disabled {
@@ -953,22 +1069,23 @@ body {
   border-radius: var(--radius-sm);
   font-size: 13px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.15s ease;
 }
 
 .settings-footer .btn-cancel:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-tertiary);
 }
 
 .settings-footer .btn-save {
   background: var(--accent);
-  color: #fff;
+  color: var(--bg-card);
   border: none;
   padding: 8px 24px;
   border-radius: var(--radius-sm);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: background 0.15s ease;
 }
 
 .settings-footer .btn-save:hover {
@@ -1001,7 +1118,7 @@ body {
 
 .history-item:hover {
   border-color: var(--accent);
-  background: rgba(108, 99, 255, 0.05);
+  background: var(--bg-secondary);
 }
 
 .history-item-thumb {
@@ -1118,14 +1235,14 @@ body {
 /* ── Agent mode & workflow progress ───────────────────── */
 
 .agent-toggle.active {
-  background: #e67e22;
-  border-color: #e67e22;
-  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-card);
 }
 
 .agent-toggle.active:hover {
-  background: #d35400;
-  border-color: #d35400;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .legacy-toggle.dimmed {
@@ -1145,7 +1262,7 @@ body {
   color: var(--text-secondary);
   line-height: 1.5;
   padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-tertiary);
   border-radius: 6px;
   border-left: 3px solid var(--accent);
 }
@@ -1190,7 +1307,7 @@ body {
 .wf-step-error .wf-step-icon { color: var(--error); }
 
 .wf-step-running {
-  background: rgba(108, 99, 255, 0.08);
+  background: var(--bg-tertiary);
 }
 
 .wf-step-done {
@@ -1299,7 +1416,7 @@ details.wf-step[open] > summary.wf-step-summary::before {
 }
 
 details.wf-step > summary.wf-step-summary:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-tertiary);
 }
 
 .wf-step-detail {
@@ -1308,7 +1425,7 @@ details.wf-step > summary.wf-step-summary:hover {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-secondary);
   border-left: 2px solid var(--border);
   margin: 4px 0 4px 14px;
 }
@@ -1375,7 +1492,7 @@ details.wf-review[open] > summary.wf-review-summary::before {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-secondary);
   border-left: 2px solid var(--border);
   border-radius: 0 4px 4px 0;
 }
@@ -1395,7 +1512,7 @@ details.wf-review[open] > summary.wf-review-summary::before {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-tertiary);
   user-select: none;
   list-style: none;
 }
@@ -1423,4 +1540,194 @@ details.wf-review[open] > summary.wf-review-summary::before {
 .wf-details > .wf-steps,
 .wf-details > .workflow-progress {
   padding: 8px 12px;
+}
+
+/* ================================================================
+   Mobile (iOS / Android)
+   ================================================================ */
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+/* Platform tokens */
+[data-platform="ios"], [data-platform="ipados"] {
+  --radius: 14px;
+  --radius-sm: 10px;
+}
+
+[data-platform="android"] {
+  --radius: 8px;
+  --radius-sm: 4px;
+}
+
+/* Hamburger hidden on desktop, shown on mobile */
+.btn-hamburger { display: none; }
+
+/* Drawer: hidden by default */
+.drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(280px, 80vw);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  transform: translateX(-100%);
+  transition: transform 0.25s ease;
+  z-index: 3000;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+.drawer-open { transform: translateX(0); box-shadow: var(--shadow-md); }
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.drawer-nav {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+}
+
+.drawer-item {
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  text-align: left;
+  padding: 12px 14px;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.drawer-item:hover, .drawer-item:active { background: var(--bg-tertiary); }
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(45, 42, 36, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  z-index: 2900;
+}
+
+.drawer-backdrop-show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ── Mobile breakpoint ─────────────────────────────────── */
+
+@media (max-width: 767px) {
+  /* iOS Safari auto-zooms when focusing inputs with font-size < 16px.
+     Force >= 16px on all interactive text fields so the page doesn't
+     scale on focus and lock users out of pinch-to-restore. */
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Disable header drag (no window chrome on mobile) */
+  #header {
+    -webkit-app-region: no-drag;
+    padding: calc(8px + var(--safe-top)) 16px 8px;
+  }
+
+  /* Header: hide individual icon buttons + new-session, show hamburger */
+  .header-actions > .header-icon-btn:not(.btn-hamburger),
+  .header-actions > #btn-new-session {
+    display: none;
+  }
+  .btn-hamburger { display: flex; }
+
+  /* Chat area + input bar safe area */
+  #chat-area {
+    padding: 16px 16px calc(16px + var(--safe-bottom));
+  }
+
+  #input-bar {
+    padding: 8px 12px calc(8px + var(--safe-bottom));
+    transition: transform 0.2s ease;
+  }
+
+  /* Modals fill the screen */
+  .settings-dialog {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh;
+    max-height: 100vh !important;
+    border-radius: 0;
+    padding-top: var(--safe-top);
+  }
+
+  .settings-modal {
+    background: var(--bg-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .settings-tabs { overflow-x: auto; }
+  .settings-tab { flex-shrink: 0; }
+
+  /* Hide storage tab on mobile (sandboxed storage) */
+  .settings-tab[data-tab="storage"],
+  #pane-storage {
+    display: none !important;
+  }
+
+  /* Welcome upload zone */
+  .upload-zone {
+    width: min(280px, 90vw);
+  }
+
+  /* Pipeline modules wrap nicer */
+  .pipeline-modules {
+    flex-wrap: wrap;
+  }
+
+  /* Image viewer respects safe area */
+  .image-viewer img {
+    max-width: 100vw;
+    max-height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+  }
+
+  .viewer-actions {
+    top: calc(16px + var(--safe-top));
+  }
+
+  /* Larger tap targets */
+  .header-icon-btn,
+  .module-toggle,
+  .drawer-item {
+    min-height: 36px;
+  }
+
+  #btn-send {
+    min-height: 40px;
+  }
+}
+
+/* iPad-specific: keep desktop-like layout but with safe area */
+[data-platform="ipados"] body {
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
 }
