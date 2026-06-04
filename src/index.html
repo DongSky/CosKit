@@ -155,8 +155,8 @@
           <h3>文本模型</h3>
           <label>提供商
             <select id="s-text-provider">
-              <option value="gemini">Gemini</option>
-              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini 兼容 API</option>
+              <option value="openai">OpenAI 兼容 API</option>
             </select>
           </label>
           <label>模型名称<input type="text" id="s-text-model" placeholder="gemini-3.1-pro-preview / gpt-5.5"></label>
@@ -168,8 +168,8 @@
           <h3>图像模型</h3>
           <label>提供商
             <select id="s-image-provider">
-              <option value="gemini">Gemini</option>
-              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini 兼容 API</option>
+              <option value="openai">OpenAI 兼容 API</option>
             </select>
           </label>
           <label>模型名称<input type="text" id="s-image-model" placeholder="gemini-3.1-pro-image-preview / gpt-image-2"></label>
@@ -198,8 +198,8 @@
           <label>提供商
             <select id="s-review-provider">
               <option value="">未配置</option>
-              <option value="gemini">Gemini</option>
-              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini 兼容 API</option>
+              <option value="openai">OpenAI 兼容 API</option>
             </select>
           </label>
           <label>模型名称<input type="text" id="s-review-model" placeholder="如 gpt-4o / gemini-2.5-pro"></label>
@@ -318,9 +318,12 @@ GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-imag
         <div class="help-section">
           <h3>支持的环境变量</h3>
           <ul>
-            <li><code>GEMINI_API_KEY</code> — Gemini API 密钥</li>
+            <li><code>GEMINI_API_KEY</code> — Gemini 兼容 API 密钥</li>
             <li><code>GEMINI_BASE_URL</code> — 文本模型代理地址（含模型名）</li>
             <li><code>GEMINI_IMAGE_BASE_URL</code> — 图像模型代理地址（含模型名）</li>
+            <li><code>OPENAI_API_KEY</code> — OpenAI 兼容 API 密钥</li>
+            <li><code>OPENAI_BASE_URL</code> — OpenAI 兼容 API Base URL</li>
+            <li><code>OPENAI_MODEL</code> / <code>OPENAI_IMAGE_MODEL</code> — 文本/图像模型名</li>
           </ul>
           <p class="help-note">设置面板中的配置优先级高于 .env 文件。留空则自动使用 .env 中的值。</p>
         </div>
