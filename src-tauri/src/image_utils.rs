@@ -17,6 +17,22 @@ pub fn save_jpeg(img: &DynamicImage, path: &Path, quality: u8) -> Result<(), Str
     Ok(())
 }
 
+/// Save image as PNG (lossless). Used for stored artifacts where we want
+/// to avoid generation loss across multi-step agent edits.
+pub fn save_png(img: &DynamicImage, path: &Path) -> Result<(), String> {
+    let bytes = image_to_png_bytes(img)?;
+    fs::write(path, bytes).map_err(|e| format!("failed to write file: {e}"))?;
+    Ok(())
+}
+
+/// Encode a DynamicImage to PNG bytes (lossless).
+pub fn image_to_png_bytes(img: &DynamicImage) -> Result<Vec<u8>, String> {
+    let mut buf = Cursor::new(Vec::new());
+    img.write_to(&mut buf, image::ImageFormat::Png)
+        .map_err(|e| format!("failed to encode PNG: {e}"))?;
+    Ok(buf.into_inner())
+}
+
 /// Create a thumbnail (max 512px on longest side) and save as JPEG.
 pub fn make_thumbnail(img: &DynamicImage, save_path: &Path) -> Result<(), String> {
     let thumb = img.resize(THUMB_MAX, THUMB_MAX, image::imageops::FilterType::Lanczos3);

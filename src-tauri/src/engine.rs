@@ -141,11 +141,12 @@ pub fn create_session(image_data: &[u8], filename: &str) -> Result<Session, Stri
     let img = image_utils::load_image_from_bytes(image_data)?;
     let original_size = (img.width(), img.height());
 
-    // Save original
-    let orig_path = sdir.join("original.jpg");
-    image_utils::save_jpeg(&img, &orig_path, 95)?;
+    // Save original (PNG, lossless — preserves decoded buffer without
+    // re-introducing JPEG artifacts on top of whatever the user uploaded).
+    let orig_path = sdir.join("original.png");
+    image_utils::save_png(&img, &orig_path)?;
 
-    // Save thumbnail
+    // Save thumbnail (JPEG-85 is fine — thumbnails are tiny preview-only).
     let thumb_path = sdir.join("original_thumb.jpg");
     image_utils::make_thumbnail(&img, &thumb_path)?;
 
@@ -394,8 +395,10 @@ async fn run_edit_pipeline(
     // and long inference. The output size will still match original_size
     // because openai_client uses original_size to pick output dimensions,
     // and resize_to_original is applied to the result downstream.
+    // Quality 95 (vs 90): the file grows a bit but visually-lossless input
+    // matters when the model's job is fine-detail retouching.
     let api_img = image_utils::resize_max_dimension(&parent_img, 2048);
-    let img_bytes = match image_utils::image_to_jpeg_bytes(&api_img, 90) {
+    let img_bytes = match image_utils::image_to_jpeg_bytes(&api_img, 95) {
         Ok(b) => b,
         Err(e) => {
             update_node(&sessions, &session_id, &node_id, |node| {
@@ -467,7 +470,9 @@ async fn run_edit_pipeline(
     match result {
         Ok((result_bytes, note)) => {
             let sdir = data_dir().join(&session_id);
-            let img_path = sdir.join(format!("{node_id}.jpg"));
+            // Stored result is PNG (lossless) so subsequent edits don't compound
+            // JPEG artifacts. Thumbnail stays JPEG (preview-only, smaller).
+            let img_path = sdir.join(format!("{node_id}.png"));
             let thumb_path = sdir.join(format!("{node_id}_thumb.jpg"));
 
             let result_img = match image_utils::load_image_from_bytes(&result_bytes) {
@@ -482,7 +487,7 @@ async fn run_edit_pipeline(
                 }
             };
 
-            if let Err(e) = image_utils::save_jpeg(&result_img, &img_path, 95) {
+            if let Err(e) = image_utils::save_png(&result_img, &img_path) {
                 update_node(&sessions, &session_id, &node_id, |node| {
                     node.status = "error".to_string();
                     node.error_msg = Some(format!("failed to save image: {e}"));

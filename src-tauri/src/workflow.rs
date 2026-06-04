@@ -186,14 +186,14 @@ pub async fn execute_workflow(
                                                 original_size,
                                             );
                                             let img_path = sdir.join(format!(
-                                                "intermediate_{}_{}.jpg",
+                                                "intermediate_{}_{}.png",
                                                 node_id, pn_id
                                             ));
                                             let thumb_path = sdir.join(format!(
                                                 "intermediate_{}_{}_thumb.jpg",
                                                 node_id, pn_id
                                             ));
-                                            if image_utils::save_jpeg(&resized, &img_path, 90)
+                                            if image_utils::save_png(&resized, &img_path)
                                                 .is_ok()
                                             {
                                                 let _ = image_utils::make_thumbnail(
