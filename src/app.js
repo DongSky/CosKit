@@ -73,7 +73,17 @@
       case "settings": document.getElementById("btn-settings").click(); break;
       case "theme": toggleTheme(); break;
       case "help": document.getElementById("btn-help").click(); break;
+      case "about": openAboutModal(); break;
     }
+  }
+
+  function openAboutModal() {
+    const m = document.getElementById("about-modal");
+    if (m) m.style.display = "flex";
+  }
+  function closeAboutModal() {
+    const m = document.getElementById("about-modal");
+    if (m) m.style.display = "none";
   }
 
   // ── Mobile keyboard adapt ────────────────────────────────
@@ -1244,6 +1254,14 @@
   helpModal.addEventListener("click", (e) => {
     if (e.target === helpModal) closeHelpModal();
   });
+  const aboutModal = document.getElementById("about-modal");
+  const aboutClose = document.getElementById("about-close");
+  if (aboutClose) aboutClose.addEventListener("click", closeAboutModal);
+  if (aboutModal) {
+    aboutModal.addEventListener("click", (e) => {
+      if (e.target === aboutModal) closeAboutModal();
+    });
+  }
 
   // Settings events
   btnSettings.addEventListener("click", openSettings);
@@ -1363,6 +1381,8 @@
         closeHistoryModal();
       } else if (helpModal.style.display !== "none") {
         closeHelpModal();
+      } else if (aboutModal && aboutModal.style.display !== "none") {
+        closeAboutModal();
       } else if (settingsModal.style.display !== "none") {
         closeSettings();
       } else if (imageViewer.style.display !== "none") {

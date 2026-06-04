@@ -1232,6 +1232,47 @@ select:focus-visible {
   margin-top: 8px;
 }
 
+/* ── About modal ───────────────────────────────────────── */
+
+.about-content {
+  padding: 8px 0;
+  text-align: center;
+}
+
+.about-app {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.about-tagline {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+}
+
+.about-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  text-align: left;
+  max-width: 260px;
+  margin: 0 auto;
+  font-size: 14px;
+}
+
+.about-meta dt {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.about-meta dd {
+  margin: 0;
+  color: var(--text);
+}
+
 /* ── Agent mode & workflow progress ───────────────────── */
 
 .agent-toggle.active {

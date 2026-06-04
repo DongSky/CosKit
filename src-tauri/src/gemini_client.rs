@@ -353,7 +353,7 @@ async fn dispatch_image(
         )
         .await
     } else {
-        let config = image_config(temperature);
+        let config = image_config(temperature, original_size);
         call_with_retry(
             &clients.image_client,
             &clients.image_url,
@@ -558,11 +558,72 @@ pub fn text_config(temperature: f64) -> Value {
     })
 }
 
-pub fn image_config(temperature: f64) -> Value {
-    json!({
+pub fn image_config(temperature: f64, original_size: Option<(u32, u32)>) -> Value {
+    let mut cfg = json!({
         "temperature": temperature,
         "responseModalities": ["TEXT", "IMAGE"]
-    })
+    });
+
+    if let Some((w, h)) = original_size {
+        if w > 0 && h > 0 {
+            let ar = pick_gemini_aspect_ratio(w, h);
+            let sz = pick_gemini_image_size(w, h);
+            cfg["imageConfig"] = json!({
+                "aspectRatio": ar,
+                "imageSize": sz,
+            });
+        }
+    }
+
+    cfg
+}
+
+/// Gemini 3.1 Flash Image (Nano Banana 2) supported aspect ratios.
+/// Values are (label, w/h ratio).
+const GEMINI_ASPECT_RATIOS: &[(&str, f64)] = &[
+    ("1:1", 1.0),
+    ("3:2", 3.0 / 2.0),
+    ("2:3", 2.0 / 3.0),
+    ("4:3", 4.0 / 3.0),
+    ("3:4", 3.0 / 4.0),
+    ("5:4", 5.0 / 4.0),
+    ("4:5", 4.0 / 5.0),
+    ("16:9", 16.0 / 9.0),
+    ("9:16", 9.0 / 16.0),
+    ("21:9", 21.0 / 9.0),
+    ("9:21", 9.0 / 21.0),
+    ("4:1", 4.0),
+    ("1:4", 0.25),
+    ("8:1", 8.0),
+    ("1:8", 0.125),
+];
+
+/// Pick the closest supported aspect ratio for a given width and height.
+/// Comparison is done in log-space so 4:3 vs 3:4 are treated symmetrically.
+fn pick_gemini_aspect_ratio(w: u32, h: u32) -> &'static str {
+    let target = (w as f64 / h as f64).ln();
+    GEMINI_ASPECT_RATIOS
+        .iter()
+        .min_by(|a, b| {
+            let da = (a.1.ln() - target).abs();
+            let db = (b.1.ln() - target).abs();
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(label, _)| *label)
+        .unwrap_or("1:1")
+}
+
+/// Pick the smallest imageSize tier that covers the original's longest edge.
+/// Tiers (per Nano Banana 2 docs): 1K (~1024px), 2K (~2048px), 4K (~3840px).
+fn pick_gemini_image_size(w: u32, h: u32) -> &'static str {
+    let max_edge = w.max(h);
+    if max_edge > 2048 {
+        "4K"
+    } else if max_edge > 1024 {
+        "2K"
+    } else {
+        "1K"
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -890,5 +951,56 @@ pub async fn call_text_with_provider(
         let url = build_api_url(base_url, model);
         let config = text_config(temperature);
         call_with_retry(&client, &url, api_key, contents, config, max_tries).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn aspect_ratio_picks_closest_supported() {
+        // Original failing case: 5776x4336 (3:2.252...) should snap to 4:3 (1.333) — closest.
+        assert_eq!(pick_gemini_aspect_ratio(5776, 4336), "4:3");
+        assert_eq!(pick_gemini_aspect_ratio(1024, 1024), "1:1");
+        assert_eq!(pick_gemini_aspect_ratio(1920, 1080), "16:9");
+        assert_eq!(pick_gemini_aspect_ratio(1080, 1920), "9:16");
+        assert_eq!(pick_gemini_aspect_ratio(3000, 2000), "3:2");
+        assert_eq!(pick_gemini_aspect_ratio(2000, 3000), "2:3");
+        assert_eq!(pick_gemini_aspect_ratio(4000, 1000), "4:1");
+        assert_eq!(pick_gemini_aspect_ratio(1000, 4000), "1:4");
+        assert_eq!(pick_gemini_aspect_ratio(8000, 1000), "8:1");
+    }
+
+    #[test]
+    fn image_size_picks_smallest_covering_tier() {
+        assert_eq!(pick_gemini_image_size(800, 600), "1K");
+        assert_eq!(pick_gemini_image_size(1024, 768), "1K");
+        assert_eq!(pick_gemini_image_size(1500, 1000), "2K");
+        assert_eq!(pick_gemini_image_size(2048, 1536), "2K");
+        assert_eq!(pick_gemini_image_size(3000, 2000), "4K");
+        assert_eq!(pick_gemini_image_size(5776, 4336), "4K");
+    }
+
+    #[test]
+    fn image_config_includes_imageconfig_when_size_known() {
+        let cfg = image_config(0.3, Some((5776, 4336)));
+        let ic = cfg.get("imageConfig").expect("imageConfig must be present");
+        assert_eq!(ic.get("aspectRatio").and_then(|v| v.as_str()), Some("4:3"));
+        assert_eq!(ic.get("imageSize").and_then(|v| v.as_str()), Some("4K"));
+        assert_eq!(
+            cfg.get("responseModalities")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len()),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn image_config_omits_imageconfig_when_size_unknown() {
+        let cfg = image_config(0.3, None);
+        assert!(cfg.get("imageConfig").is_none());
+        let cfg_zero = image_config(0.3, Some((0, 100)));
+        assert!(cfg_zero.get("imageConfig").is_none());
     }
 }

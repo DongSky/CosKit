@@ -69,6 +69,7 @@
     <button class="drawer-item" data-action="settings">设置</button>
     <button class="drawer-item" data-action="theme">切换主题</button>
     <button class="drawer-item" data-action="help">帮助</button>
+    <button class="drawer-item" data-action="about">关于</button>
   </nav>
 </aside>
 
@@ -327,6 +328,27 @@ GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-imag
           </ul>
           <p class="help-note">设置面板中的配置优先级高于 .env 文件。留空则自动使用 .env 中的值。</p>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- About modal -->
+<div id="about-modal" class="settings-modal" style="display:none;">
+  <div class="settings-dialog" style="width:min(420px, 90vw);">
+    <div class="settings-header">
+      <h2>关于</h2>
+      <button class="settings-close" id="about-close">✕</button>
+    </div>
+    <div class="settings-body">
+      <div class="about-content">
+        <div class="about-app">CosKit</div>
+        <div class="about-tagline">AI 修图 · 人像 / Cosplay 后期</div>
+        <dl class="about-meta">
+          <dt>版本</dt><dd id="about-version">0.1.1</dd>
+          <dt>发版时间</dt><dd id="about-date">2026-06-05</dd>
+          <dt>作者</dt><dd>DongSky</dd>
+        </dl>
       </div>
     </div>
   </div>

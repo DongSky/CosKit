@@ -356,17 +356,30 @@ pub async fn export_image(
     }
 
     let src = src.clone();
-    let default_name = format!("CosKit_{node_id}.jpg");
+    // Match the default filename's extension to whatever we have on disk.
+    // After the lossless-storage change, edited results are PNG; legacy
+    // sessions still have .jpg.
+    let src_ext = Path::new(&src)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg")
+        .to_lowercase();
+    let default_name = format!("CosKit_{node_id}.{src_ext}");
 
     // Drop the sessions lock before showing dialog
     drop(sessions);
 
     use tauri_plugin_dialog::DialogExt;
+    let (filter_label, filter_exts): (&str, &[&str]) = if src_ext == "png" {
+        ("PNG Image", &["png"])
+    } else {
+        ("JPEG Image", &["jpg", "jpeg"])
+    };
     let file_path = app
         .dialog()
         .file()
         .set_file_name(&default_name)
-        .add_filter("JPEG Image", &["jpg", "jpeg"])
+        .add_filter(filter_label, filter_exts)
         .blocking_save_file();
 
     match file_path {

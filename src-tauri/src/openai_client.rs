@@ -307,8 +307,11 @@ fn compute_output_size(w: u32, h: u32) -> String {
         scale *= (655_360.0 / scaled_total).sqrt();
     }
 
-    let mut ow = ((fw * scale) / 16.0).round() as u32 * 16;
-    let mut oh = ((fh * scale) / 16.0).round() as u32 * 16;
+    // Floor (not round) when snapping to 16-multiples so we never exceed the
+    // pixel budget after scaling. Rounding up could push total pixels past
+    // 8_294_400 even when the pre-snap target was exactly at the budget.
+    let mut ow = ((fw * scale) / 16.0).floor() as u32 * 16;
+    let mut oh = ((fh * scale) / 16.0).floor() as u32 * 16;
 
     // 3. Final safety clamps in case rounding pushed us slightly out of range.
     if ow > 3840 {
@@ -322,6 +325,28 @@ fn compute_output_size(w: u32, h: u32) -> String {
     }
     if oh < 256 {
         oh = 256;
+    }
+
+    // 4. Re-check the pixel budget after clamping. Floor-rounding may put us
+    //    under the minimum, and clamping the long edge from a >3840 target
+    //    can put us over. Adjust by 16 at a time until both bounds are met.
+    while (ow as u64) * (oh as u64) > 8_294_400 {
+        if ow >= oh && ow > 256 {
+            ow -= 16;
+        } else if oh > 256 {
+            oh -= 16;
+        } else {
+            break;
+        }
+    }
+    while (ow as u64) * (oh as u64) < 655_360 {
+        if ow <= oh && ow < 3840 {
+            ow += 16;
+        } else if oh < 3840 {
+            oh += 16;
+        } else {
+            break;
+        }
     }
 
     format!("{ow}x{oh}")
@@ -471,4 +496,62 @@ pub async fn call_image(
 #[allow(dead_code)]
 fn _silence_unused_engine() {
     let _ = base64::engine::general_purpose::STANDARD.encode([]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compute_output_size;
+
+    fn parse(s: &str) -> (u32, u32) {
+        let mut parts = s.split('x');
+        let w: u32 = parts.next().unwrap().parse().unwrap();
+        let h: u32 = parts.next().unwrap().parse().unwrap();
+        (w, h)
+    }
+
+    fn assert_valid(label: &str, w: u32, h: u32, out: &str) {
+        let (ow, oh) = parse(out);
+        assert!(ow % 16 == 0 && oh % 16 == 0, "{label}: edges not 16-mult: {out}");
+        assert!(ow <= 3840 && oh <= 3840, "{label}: edge > 3840: {out}");
+        assert!(ow >= 256 && oh >= 256, "{label}: edge < 256: {out}");
+        let total = (ow as u64) * (oh as u64);
+        assert!(
+            total <= 8_294_400,
+            "{label}: input {w}x{h} → {out} = {total} px exceeds budget 8_294_400"
+        );
+        assert!(
+            total >= 655_360,
+            "{label}: input {w}x{h} → {out} = {total} px below min budget 655_360"
+        );
+    }
+
+    #[test]
+    fn budget_not_exceeded_for_large_inputs() {
+        // Original failing case: 5776x4336 produced 3328x2496 = 8_306_688 (over budget).
+        assert_valid("5776x4336", 5776, 4336, &compute_output_size(5776, 4336));
+        assert_valid("6000x4000", 6000, 4000, &compute_output_size(6000, 4000));
+        assert_valid("8000x6000", 8000, 6000, &compute_output_size(8000, 6000));
+        assert_valid("4000x4000", 4000, 4000, &compute_output_size(4000, 4000));
+        assert_valid("3840x2160", 3840, 2160, &compute_output_size(3840, 2160));
+    }
+
+    #[test]
+    fn small_inputs_get_min_budget() {
+        assert_valid("100x100", 100, 100, &compute_output_size(100, 100));
+        assert_valid("800x800", 800, 800, &compute_output_size(800, 800));
+        assert_valid("512x512", 512, 512, &compute_output_size(512, 512));
+    }
+
+    #[test]
+    fn aspect_ratio_clamped_to_3_to_1() {
+        let out = compute_output_size(10000, 1000);
+        let (w, h) = parse(&out);
+        assert!(w as f64 / h as f64 <= 3.0 + 0.05);
+    }
+
+    #[test]
+    fn zero_dim_returns_default() {
+        assert_eq!(compute_output_size(0, 100), "1024x1024");
+        assert_eq!(compute_output_size(100, 0), "1024x1024");
+    }
 }
