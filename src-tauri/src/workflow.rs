@@ -488,8 +488,8 @@ mod tests {
             std::fs::read(manifest.join("../example.jpg")).expect("example.jpg not found");
         let img = image_utils::load_image_from_bytes(&img_bytes).expect("load image");
         let original_size = (img.width(), img.height());
-        let jpg_bytes = image_utils::image_to_jpeg_bytes(&img, 90).expect("encode jpeg");
-        let image_b64 = image_utils::bytes_to_base64(&jpg_bytes);
+        let png_bytes = image_utils::image_to_png_bytes(&img).expect("encode png");
+        let image_b64 = image_utils::bytes_to_base64(&png_bytes);
 
         // Load prompt
         let prompt = std::fs::read_to_string(manifest.join("../example.txt"))

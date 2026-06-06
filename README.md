@@ -25,6 +25,9 @@ AI 驱动的人像修图桌面应用，支持 **Gemini 兼容 API** 和 **OpenAI
 | macOS (Intel) | `CosKit_x.x.x_x64.dmg` |
 | Windows (安装版) | `CosKit_x.x.x_x64-setup.exe` 或 `.msi` |
 | Windows (便携版) | `CosKit_x.x.x_x64_portable.exe` |
+| Android | `CosKit_x.x.x_universal.apk` |
+
+> iOS 版本需自行从源码构建并安装到设备。
 
 ### macOS 用户注意
 
@@ -71,15 +74,16 @@ OPENAI_IMAGE_MODEL=gpt-image-2
 
 ## 从源码构建
 
+CosKit 支持 **macOS、Windows、Android、iOS** 全平台。
+
 ### 环境要求
 
 - [Node.js](https://nodejs.org/) >= 20
 - [Rust](https://rustup.rs/) >= 1.77
 
-### 构建步骤
+### 桌面端（macOS / Windows）
 
 ```bash
-# 安装依赖
 npm install
 
 # 开发模式
@@ -100,6 +104,30 @@ npx tauri build
 # Windows
 build_win.bat
 ```
+
+### Android（本地构建 Release）
+
+**额外要求**：Android Studio、Android SDK（含 NDK）、JDK（Android Studio 自带）
+
+1. 设置签名环境变量（建议写入 `~/.zshrc`）：
+
+```bash
+export COSKIT_ANDROID_STORE_PASSWORD=your_store_password
+export COSKIT_ANDROID_KEY_ALIAS=your_key_alias
+export COSKIT_ANDROID_KEY_PASSWORD=your_key_password   # 若与 store password 相同可省略
+```
+
+2. 运行构建脚本：
+
+```bash
+./build_android.sh
+```
+
+脚本会自动初始化 Android 项目（首次运行）、编译并签名，产物为：
+- APK：`src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`
+- AAB：`src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab`
+
+> 默认使用仓库内的 `coskit.jks` keystore。如需替换，设置 `COSKIT_ANDROID_KEYSTORE=/path/to/your.jks`。
 
 ## 技术栈
 

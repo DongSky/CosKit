@@ -498,7 +498,7 @@ fn build_text_and_image_contents(text: &str, image_b64: &str) -> Value {
     json!([{
         "parts": [
             {"text": text},
-            {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}}
+            {"inline_data": {"mime_type": "image/png", "data": image_b64}}
         ]
     }])
 }
@@ -515,7 +515,7 @@ pub fn build_contents_with_references(
 
     let mut parts = vec![
         json!({"text": text}),
-        json!({"inline_data": {"mime_type": "image/jpeg", "data": image_b64}}),
+        json!({"inline_data": {"mime_type": "image/png", "data": image_b64}}),
     ];
 
     for (i, ref_img) in references.iter().enumerate() {
@@ -525,7 +525,7 @@ pub fn build_contents_with_references(
             format!("\n参考图 {}（{}）：", i + 1, ref_img.description.trim())
         };
         parts.push(json!({"text": desc}));
-        parts.push(json!({"inline_data": {"mime_type": "image/jpeg", "data": ref_img.data}}));
+        parts.push(json!({"inline_data": {"mime_type": "image/png", "data": ref_img.data}}));
     }
 
     json!([{"parts": parts}])
