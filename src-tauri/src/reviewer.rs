@@ -123,9 +123,9 @@ fn build_review_contents(
     let mut parts = vec![
         json!({"text": prompt_text}),
         json!({"text": "\n原始照片："}),
-        json!({"inline_data": {"mime_type": "image/jpeg", "data": original_b64}}),
+        json!({"inline_data": {"mime_type": "image/png", "data": original_b64}}),
         json!({"text": "\n修图结果："}),
-        json!({"inline_data": {"mime_type": "image/jpeg", "data": result_b64}}),
+        json!({"inline_data": {"mime_type": "image/png", "data": result_b64}}),
     ];
 
     for (i, ref_img) in references.iter().enumerate() {
@@ -135,7 +135,7 @@ fn build_review_contents(
             format!("\n参考图 {}（{}）：", i + 1, ref_img.description.trim())
         };
         parts.push(json!({"text": desc}));
-        parts.push(json!({"inline_data": {"mime_type": "image/jpeg", "data": ref_img.data}}));
+        parts.push(json!({"inline_data": {"mime_type": "image/png", "data": ref_img.data}}));
     }
 
     json!([{"parts": parts}])

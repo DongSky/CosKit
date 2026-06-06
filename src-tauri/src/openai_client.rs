@@ -222,8 +222,8 @@ async fn send_image_request(
 ) -> Result<Value, String> {
     if let Some(bytes) = image_bytes {
         let part = reqwest::multipart::Part::bytes(bytes.to_vec())
-            .file_name("input.jpg")
-            .mime_str("image/jpeg")
+            .file_name("input.png")
+            .mime_str("image/png")
             .map_err(|e| e.to_string())?;
         let form = reqwest::multipart::Form::new()
             .text("model", model.to_string())

@@ -351,9 +351,9 @@ fn prepare_reference_images(refs: Vec<ReferenceImage>) -> Vec<ReferenceImage> {
             let bytes = image_utils::base64_to_bytes(&r.data).ok()?;
             let img = image_utils::load_image_from_bytes(&bytes).ok()?;
             let resized = image_utils::resize_max_dimension(&img, 1024);
-            let jpg_bytes = image_utils::image_to_jpeg_bytes(&resized, 85).ok()?;
+            let png_bytes = image_utils::image_to_png_bytes(&resized).ok()?;
             Some(ReferenceImage {
-                data: image_utils::bytes_to_base64(&jpg_bytes),
+                data: image_utils::bytes_to_base64(&png_bytes),
                 description: r.description,
             })
         })
@@ -398,7 +398,7 @@ async fn run_edit_pipeline(
     // Quality 95 (vs 90): the file grows a bit but visually-lossless input
     // matters when the model's job is fine-detail retouching.
     let api_img = image_utils::resize_max_dimension(&parent_img, 2048);
-    let img_bytes = match image_utils::image_to_jpeg_bytes(&api_img, 95) {
+    let img_bytes = match image_utils::image_to_png_bytes(&api_img) {
         Ok(b) => b,
         Err(e) => {
             update_node(&sessions, &session_id, &node_id, |node| {
@@ -410,7 +410,7 @@ async fn run_edit_pipeline(
         }
     };
     eprintln!(
-        "[CosKit] pipeline: input downscaled {}x{} -> {}x{}, jpeg={} bytes",
+        "[CosKit] pipeline: input downscaled {}x{} -> {}x{}, png={} bytes",
         parent_img.width(),
         parent_img.height(),
         api_img.width(),
@@ -773,7 +773,7 @@ async fn run_modular_pipeline(
         let effect_b64 = if !result_bytes.is_empty() {
             let effect_img = image_utils::load_image_from_bytes(&result_bytes)?;
             let effect_img = image_utils::resize_to_original(&effect_img, original_size);
-            let effect_bytes = image_utils::image_to_jpeg_bytes(&effect_img, 90)?;
+            let effect_bytes = image_utils::image_to_png_bytes(&effect_img)?;
             image_utils::bytes_to_base64(&effect_bytes)
         } else {
             image_b64.to_string()
