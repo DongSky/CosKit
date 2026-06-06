@@ -2,6 +2,10 @@
 
 AI 驱动的人像修图桌面应用，支持 **Gemini 兼容 API** 和 **OpenAI 兼容 API** 等模型后端，实现智能修图、背景替换和 Cosplay 特效。
 
+## 演示
+
+[![CosKit 演示视频](http://i0.hdslb.com/bfs/archive/b3a3e0014551168ec4eb678b6d16358695a8bc7e.jpg)](https://www.bilibili.com/video/BV1j97U6VEwE)
+
 ## 功能
 
 - **智能修图**：上传照片，输入自然语言指令，AI 自动完成美颜、磨皮、光线优化
