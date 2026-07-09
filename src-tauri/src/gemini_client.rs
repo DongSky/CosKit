@@ -340,6 +340,7 @@ async fn dispatch_image(
     temperature: f64,
     max_tries: u32,
     original_size: Option<(u32, u32)>,
+    mask_b64: Option<&str>,
 ) -> Result<Value, String> {
     if clients.image_provider == PROVIDER_OPENAI {
         openai_client::call_image(
@@ -350,6 +351,7 @@ async fn dispatch_image(
             contents,
             max_tries,
             original_size,
+            mask_b64,
         )
         .await
     } else {
@@ -770,6 +772,7 @@ pub async fn retouch_image(
     bg_suggestion: &str,
     references: &[ReferenceImage],
     original_size: Option<(u32, u32)>,
+    mask_b64: Option<&str>,
 ) -> Result<(Vec<u8>, String), String> {
     let clients = get_clients()?;
 
@@ -801,9 +804,11 @@ pub async fn retouch_image(
         .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let contents = build_contents_with_references(&prompt, image_b64, references);
+    let (prompt, mask_refs) =
+        apply_mask_strategy(&clients, &prompt, image_b64, references, mask_b64)?;
+    let contents = build_contents_with_references(&prompt, image_b64, &mask_refs);
 
-    let resp = dispatch_image(&clients, contents, 0.3, 5, original_size).await?;
+    let resp = dispatch_image(&clients, contents, 0.3, 5, original_size, mask_b64).await?;
 
     let mut img_bytes = extract_image_bytes(&resp);
     let mut note = extract_text(&resp);
@@ -813,7 +818,7 @@ pub async fn retouch_image(
         let retry_prompt = format!("{prompt}\n\n注意：必须返回图片。");
         let contents = build_text_and_image_contents(&retry_prompt, image_b64);
 
-        let resp_retry = dispatch_image(&clients, contents, 0.2, 5, original_size).await?;
+        let resp_retry = dispatch_image(&clients, contents, 0.2, 5, original_size, mask_b64).await?;
 
         img_bytes = extract_image_bytes(&resp_retry);
         let retry_note = extract_text(&resp_retry);
@@ -843,6 +848,7 @@ pub async fn apply_cosplay_effect(
     user_prompt: &str,
     references: &[ReferenceImage],
     original_size: Option<(u32, u32)>,
+    mask_b64: Option<&str>,
 ) -> Result<(Vec<u8>, String), String> {
     let clients = get_clients()?;
 
@@ -869,9 +875,11 @@ pub async fn apply_cosplay_effect(
         .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let contents = build_contents_with_references(&prompt, image_b64, references);
+    let (prompt, mask_refs) =
+        apply_mask_strategy(&clients, &prompt, image_b64, references, mask_b64)?;
+    let contents = build_contents_with_references(&prompt, image_b64, &mask_refs);
 
-    let resp = dispatch_image(&clients, contents, 0.3, 5, original_size).await?;
+    let resp = dispatch_image(&clients, contents, 0.3, 5, original_size, mask_b64).await?;
     let img_bytes = extract_image_bytes(&resp).ok_or("no image returned in cosplay effect step")?;
 
     Ok((img_bytes, "已添加轻度氛围特效".to_string()))
@@ -881,6 +889,38 @@ pub async fn apply_cosplay_effect(
 // Generic model call functions (used by planner & workflow)
 // ---------------------------------------------------------------------------
 
+/// Apply the provider-specific mask strategy to (prompt, references).
+/// - OpenAI: mask is passed natively via multipart in dispatch_image — prompt
+///   and references stay unchanged.
+/// - Gemini: no native mask support — append a region-constraint instruction
+///   to the prompt and attach a red-overlay reference image marking the edit
+///   region.
+fn apply_mask_strategy(
+    clients: &GeminiClients,
+    prompt: &str,
+    image_b64: &str,
+    references: &[ReferenceImage],
+    mask_b64: Option<&str>,
+) -> Result<(String, Vec<ReferenceImage>), String> {
+    let Some(mask) = mask_b64 else {
+        return Ok((prompt.to_string(), references.to_vec()));
+    };
+    if clients.image_provider == PROVIDER_OPENAI {
+        return Ok((prompt.to_string(), references.to_vec()));
+    }
+    let enhanced = format!(
+        "{}\n\n【重要】请仅修改图中用红色半透明标记的区域，保持其余部分完全不变。",
+        prompt
+    );
+    let overlay_b64 = image_utils::generate_mask_overlay(image_b64, mask)?;
+    let mut refs = references.to_vec();
+    refs.push(ReferenceImage {
+        data: overlay_b64,
+        description: "红色标记区域为需要编辑的部分，请仅修改红色区域".to_string(),
+    });
+    Ok((enhanced, refs))
+}
+
 /// Generic image model call — sends image + prompt, returns result image bytes.
 pub async fn call_image_generation(
     image_b64: &str,
@@ -888,11 +928,15 @@ pub async fn call_image_generation(
     references: &[ReferenceImage],
     temperature: f64,
     original_size: Option<(u32, u32)>,
+    mask_b64: Option<&str>,
 ) -> Result<Vec<u8>, String> {
     let clients = get_clients()?;
-    let contents = build_contents_with_references(prompt, image_b64, references);
 
-    let resp = dispatch_image(&clients, contents, temperature, 5, original_size).await?;
+    let (final_prompt, final_refs) =
+        apply_mask_strategy(&clients, prompt, image_b64, references, mask_b64)?;
+
+    let contents = build_contents_with_references(&final_prompt, image_b64, &final_refs);
+    let resp = dispatch_image(&clients, contents, temperature, 5, original_size, mask_b64).await?;
 
     extract_image_bytes(&resp).ok_or_else(|| "模型未返回图片".to_string())
 }

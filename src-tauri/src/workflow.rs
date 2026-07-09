@@ -20,6 +20,7 @@ pub async fn execute_workflow(
     plan: &WorkflowPlan,
     references: &[ReferenceImage],
     save_intermediates: bool,
+    mask_b64: Option<&str>,
 ) -> Result<(Vec<u8>, String), String> {
     let registry = skills::skill_registry();
     let total_steps = plan.nodes.len() as u32;
@@ -134,6 +135,7 @@ pub async fn execute_workflow(
             let temp = skill.default_temperature;
             let pn_id = pn.node_id.clone();
             let outputs_clone = Arc::clone(&outputs);
+            let mask_owned = mask_b64.map(|s| s.to_string());
 
             let handle = tokio::spawn(async move {
                 let result = gemini_client::call_image_generation(
@@ -142,6 +144,7 @@ pub async fn execute_workflow(
                     &refs,
                     temp,
                     Some(original_size),
+                    mask_owned.as_deref(),
                 )
                 .await;
                 match result {
@@ -294,6 +297,7 @@ pub async fn execute_workflow_combined(
     original_size: (u32, u32),
     plan: &WorkflowPlan,
     references: &[ReferenceImage],
+    mask_b64: Option<&str>,
 ) -> Result<(Vec<u8>, String), String> {
     let registry = skills::skill_registry();
     let total_steps = plan.nodes.len() as u32;
@@ -351,6 +355,7 @@ pub async fn execute_workflow_combined(
         references,
         avg_temp,
         Some(original_size),
+        mask_b64,
     )
     .await;
 

@@ -214,6 +214,7 @@ pub async fn submit_edit(
     prompt: String,
     modules: PipelineModules,
     reference_images: Option<Vec<ReferenceImage>>,
+    mask_base64: Option<String>,
 ) -> Result<Value, String> {
     let reference_images = reference_images.unwrap_or_default();
     let node = engine::submit_edit(
@@ -223,6 +224,7 @@ pub async fn submit_edit(
         &prompt,
         modules,
         reference_images,
+        mask_base64,
     )?;
 
     let active_path = {

@@ -14,6 +14,8 @@
   let viewerSessionId = null; // tracked for export
   let viewerNodeId = null; // tracked for export
   let referenceImages = []; // Array of { dataUrl: string, description: string }
+  let currentMaskDataUrl = null; // PNG data URL of the mask, or null
+  let currentMaskParentId = null; // node id the mask was drawn against
 
   // ── Theme ────────────────────────────────────────────────
   const THEME_KEY = "coskit-theme";
@@ -137,7 +139,7 @@
     get_session: ["session_id"],
     list_sessions: [],
     delete_session: ["session_id"],
-    submit_edit: ["session_id", "parent_node_id", "prompt", "modules", "reference_images"],
+    submit_edit: ["session_id", "parent_node_id", "prompt", "modules", "reference_images", "mask_base64"],
     get_node_status: ["session_id", "node_id"],
     navigate_branch: ["session_id", "parent_node_id", "direction"],
     goto_node: ["session_id", "node_id"],
@@ -217,6 +219,7 @@
 
       currentSessionId = result.session_id;
       editFromNodeId = null;
+      clearMask();
       await refreshSession();
       showChatMode();
     } finally {
@@ -249,6 +252,7 @@
       }
       currentSessionId = sessionResult.session_id;
       editFromNodeId = null;
+      clearMask();
       await refreshSession();
       showChatMode();
     } catch (err) {
@@ -306,6 +310,15 @@
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     bubble.innerHTML = escapeHtml(node.prompt);
+
+    // Region-edit badge: this edit was constrained to a user-drawn selection
+    if (node.mask_image_path) {
+      const badge = document.createElement("span");
+      badge.className = "mask-badge";
+      badge.textContent = "◱ 选区";
+      badge.title = "此次编辑仅针对用户框选的区域";
+      bubble.appendChild(badge);
+    }
 
     const refs = node.metadata && node.metadata.reference_images;
     if (refs && refs.length > 0) {
@@ -465,17 +478,20 @@
     const result = await api().navigate_branch(currentSessionId, parentNodeId, direction);
     if (result.error) return;
     sessionData.active_path = result.active_path;
+    clearMask(); // active leaf changed — a mask drawn on the old leaf is stale
     renderMessages();
   }
 
   // ── Edit from historical node ──────────────────────────
   function setEditFrom(nodeId) {
+    if (editFromNodeId !== nodeId) clearMask(); // mask belongs to the previous target
     editFromNodeId = nodeId;
     updateEditFromUI();
     promptInput.focus();
   }
 
   function clearEditFrom() {
+    if (editFromNodeId !== null) clearMask();
     editFromNodeId = null;
     updateEditFromUI();
   }
@@ -596,19 +612,28 @@
     // Collect reference images
     const refData = collectReferenceData();
 
+    // Discard the mask if it was drawn against a different parent image
+    if (currentMaskDataUrl && currentMaskParentId && currentMaskParentId !== parentId) {
+      clearMask();
+    }
+    const maskB64 = currentMaskDataUrl
+      ? currentMaskDataUrl.replace(/^data:image\/png;base64,/, '')
+      : null;
+
     promptInput.value = "";
     btnSend.disabled = true;
 
-    const result = await api().submit_edit(currentSessionId, parentId, prompt, modules, refData);
+    const result = await api().submit_edit(currentSessionId, parentId, prompt, modules, refData, maskB64);
     if (result.error) {
       alert("提交失败: " + result.error);
       btnSend.disabled = false;
       return;
     }
 
-    // Clear reference images after submission
+    // Clear reference images and mask after submission
     referenceImages = [];
     renderReferenceImages();
+    clearMask();
 
     // Update active path
     sessionData.active_path = result.active_path;
@@ -842,6 +867,7 @@
     editFromNodeId = null;
     referenceImages = [];
     renderReferenceImages();
+    clearMask();
     // Stop all polling
     Object.keys(pollingTimers).forEach(stopPolling);
   }
@@ -1111,6 +1137,7 @@
       item.onclick = async () => {
         currentSessionId = s.session_id;
         editFromNodeId = null;
+        clearMask();
         await refreshSession();
         showChatMode();
         closeHistoryModal();
@@ -1208,6 +1235,54 @@
   });
 
   btnSend.addEventListener("click", submitEdit);
+
+  // Mask editor button
+  const btnMask = document.getElementById("btn-mask");
+  btnMask.addEventListener("click", async () => {
+    if (!currentSessionId || !sessionData) return;
+    // Use the SAME parent resolution as submitEdit (without consuming editFromNodeId),
+    // so the mask is always drawn on the image the edit will actually apply to.
+    const activePath = sessionData.active_path;
+    const parentId = editFromNodeId || activePath[activePath.length - 1];
+    if (!parentId) return;
+    // Load image for mask editing
+    const imgDataUrl = await api().get_image(currentSessionId, parentId, false);
+    if (!imgDataUrl || imgDataUrl.error) return;
+    // Detect image dimensions from the session data
+    const w = sessionData.original_size ? sessionData.original_size[0] : 1024;
+    const h = sessionData.original_size ? sessionData.original_size[1] : 1024;
+    // Restore the existing mask only if it was drawn for this same parent
+    const existingMask = currentMaskParentId === parentId ? currentMaskDataUrl : null;
+    window.maskEditor.open(imgDataUrl, w, h, existingMask);
+    window.maskEditor.onConfirm((maskDataUrl) => {
+      if (maskDataUrl) {
+        currentMaskDataUrl = maskDataUrl;
+        currentMaskParentId = parentId;
+      } else {
+        // null = user removed the selection
+        currentMaskDataUrl = null;
+        currentMaskParentId = null;
+      }
+      updateMaskButtonState();
+    });
+  });
+
+  function clearMask() {
+    currentMaskDataUrl = null;
+    currentMaskParentId = null;
+    updateMaskButtonState();
+  }
+
+  function updateMaskButtonState() {
+    const btn = document.getElementById("btn-mask");
+    if (currentMaskDataUrl) {
+      btn.classList.add("has-mask");
+      btn.title = "已设置选区（点击重新编辑）";
+    } else {
+      btn.classList.remove("has-mask");
+      btn.title = "选区编辑（仅修改指定区域）";
+    }
+  }
 
   promptInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey) {

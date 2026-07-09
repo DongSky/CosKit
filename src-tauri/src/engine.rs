@@ -243,6 +243,7 @@ pub fn submit_edit(
     prompt: &str,
     modules: PipelineModules,
     reference_images: Vec<ReferenceImage>,
+    mask_base64: Option<String>,
 ) -> Result<EditNode, String> {
     let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
     let session = sessions.get_mut(session_id).ok_or("session not found")?;
@@ -312,6 +313,7 @@ pub fn submit_edit(
             original_size,
             modules,
             reference_images,
+            mask_base64,
         )
         .await;
     });
@@ -369,6 +371,7 @@ async fn run_edit_pipeline(
     original_size: (u32, u32),
     modules: PipelineModules,
     reference_images: Vec<ReferenceImage>,
+    mask_base64: Option<String>,
 ) {
     // Set status to processing
     update_node(&sessions, &session_id, &node_id, |node| {
@@ -431,7 +434,15 @@ async fn run_edit_pipeline(
             node.progress_msg = "正在规划工作流...".to_string();
         });
 
-        match planner::plan_workflow(&image_b64, &prompt, &references).await {
+        // Let the planner know a region has been selected so it plans
+        // region-scoped edits instead of global ones.
+        let plan_prompt = if mask_base64.is_some() {
+            format!("{prompt}\n\n（注：用户已在图中框选特定区域，所有编辑仅针对选区内容，请勿规划全图性调整。）")
+        } else {
+            prompt.clone()
+        };
+
+        match planner::plan_workflow(&image_b64, &plan_prompt, &references).await {
             Ok(initial_plan) => {
                 run_agent_workflow_with_review(
                     &sessions,
@@ -443,6 +454,7 @@ async fn run_edit_pipeline(
                     &modules,
                     &references,
                     initial_plan,
+                    mask_base64.as_deref(),
                 )
                 .await
             }
@@ -463,6 +475,7 @@ async fn run_edit_pipeline(
             original_size,
             &modules,
             &references,
+            mask_base64.as_deref(),
         )
         .await
     };
@@ -475,7 +488,7 @@ async fn run_edit_pipeline(
             let img_path = sdir.join(format!("{node_id}.png"));
             let thumb_path = sdir.join(format!("{node_id}_thumb.jpg"));
 
-            let result_img = match image_utils::load_image_from_bytes(&result_bytes) {
+            let api_result_img = match image_utils::load_image_from_bytes(&result_bytes) {
                 Ok(img) => image_utils::resize_to_original(&img, original_size),
                 Err(e) => {
                     update_node(&sessions, &session_id, &node_id, |node| {
@@ -485,6 +498,30 @@ async fn run_edit_pipeline(
                     save_session_from_map(&sessions, &session_id);
                     return;
                 }
+            };
+
+            // If mask was provided, composite: protect original pixels outside mask
+            let result_img = if let Some(ref mask_b64) = mask_base64 {
+                match image_utils::base64_to_bytes(mask_b64)
+                    .and_then(|b| image_utils::load_image_from_bytes(&b))
+                {
+                    Ok(mask_img) => {
+                        let mask_resized =
+                            image_utils::resize_to_original(&mask_img, original_size);
+                        let parent_img =
+                            match image_utils::load_image_from_path(&parent_image_path) {
+                                Ok(img) => img,
+                                Err(_) => api_result_img.clone(),
+                            };
+                        image_utils::composite_with_mask(&parent_img, &api_result_img, &mask_resized)
+                    }
+                    Err(e) => {
+                        eprintln!("[CosKit] mask decode failed, using raw result: {e}");
+                        api_result_img
+                    }
+                }
+            } else {
+                api_result_img
             };
 
             if let Err(e) = image_utils::save_png(&result_img, &img_path) {
@@ -498,11 +535,23 @@ async fn run_edit_pipeline(
 
             let _ = image_utils::make_thumbnail(&result_img, &thumb_path);
 
+            // Save mask file if present
+            let mask_path_str = if let Some(ref mask_b64) = mask_base64 {
+                let mask_path = sdir.join(format!("mask_{node_id}.png"));
+                if let Ok(mask_bytes) = image_utils::base64_to_bytes(mask_b64) {
+                    let _ = std::fs::write(&mask_path, &mask_bytes);
+                }
+                mask_path.to_string_lossy().to_string()
+            } else {
+                String::new()
+            };
+
             let img_path_str = img_path.to_string_lossy().to_string();
             let thumb_path_str = thumb_path.to_string_lossy().to_string();
             update_node(&sessions, &session_id, &node_id, |node| {
                 node.image_path = img_path_str;
                 node.thumbnail_path = thumb_path_str;
+                node.mask_image_path = mask_path_str;
                 node.note = note;
                 node.status = "done".to_string();
             });
@@ -530,6 +579,7 @@ async fn run_agent_workflow_with_review(
     modules: &PipelineModules,
     references: &[ReferenceImage],
     initial_plan: planner::WorkflowPlan,
+    mask_b64: Option<&str>,
 ) -> Result<(Vec<u8>, String), String> {
     let review_settings = settings::load_settings();
     let review_enabled = modules.review_enabled;
@@ -571,6 +621,7 @@ async fn run_agent_workflow_with_review(
                 original_size,
                 &current_plan,
                 references,
+                mask_b64,
             )
             .await
         } else {
@@ -583,6 +634,7 @@ async fn run_agent_workflow_with_review(
                 &current_plan,
                 references,
                 modules.save_intermediates,
+                mask_b64,
             )
             .await
         };
@@ -688,6 +740,7 @@ async fn run_modular_pipeline(
     original_size: (u32, u32),
     modules: &PipelineModules,
     references: &[ReferenceImage],
+    mask_b64: Option<&str>,
 ) -> Result<(Vec<u8>, String), String> {
     let needs_scene = modules.background || modules.effects;
     let needs_bg = modules.background;
@@ -754,6 +807,7 @@ async fn run_modular_pipeline(
             &bg_suggestion,
             references,
             Some(original_size),
+            mask_b64,
         )
         .await?;
         result_bytes = bytes;
@@ -785,6 +839,7 @@ async fn run_modular_pipeline(
             prompt,
             references,
             Some(original_size),
+            mask_b64,
         )
         .await
         {

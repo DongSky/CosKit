@@ -219,17 +219,27 @@ async fn send_image_request(
     prompt: &str,
     image_bytes: Option<&[u8]>,
     size: &str,
+    mask_bytes: Option<&[u8]>,
 ) -> Result<Value, String> {
     if let Some(bytes) = image_bytes {
         let part = reqwest::multipart::Part::bytes(bytes.to_vec())
             .file_name("input.png")
             .mime_str("image/png")
             .map_err(|e| e.to_string())?;
-        let form = reqwest::multipart::Form::new()
+        let mut form = reqwest::multipart::Form::new()
             .text("model", model.to_string())
             .text("prompt", prompt.to_string())
             .text("size", size.to_string())
             .part("image", part);
+
+        if let Some(mask) = mask_bytes {
+            let mask_part = reqwest::multipart::Part::bytes(mask.to_vec())
+                .file_name("mask.png")
+                .mime_str("image/png")
+                .map_err(|e| e.to_string())?;
+            form = form.part("mask", mask_part);
+        }
+
         let resp = client
             .post(url)
             .bearer_auth(api_key)
@@ -376,6 +386,7 @@ pub async fn call_image(
     contents: Value,
     max_tries: u32,
     original_size: Option<(u32, u32)>,
+    mask_b64: Option<&str>,
 ) -> Result<Value, String> {
     let mut prompt = String::new();
     let mut image_data_b64: Option<String> = None;
@@ -415,6 +426,15 @@ pub async fn call_image(
         None => None,
     };
 
+    let mask_bytes = match mask_b64 {
+        Some(b64) => Some(
+            base64::engine::general_purpose::STANDARD
+                .decode(b64.as_bytes())
+                .map_err(|e| format!("mask base64 decode failed: {e}"))?,
+        ),
+        None => None,
+    };
+
     // Use original_size if provided; otherwise detect from encoded bytes.
     let size = if let Some((ow, oh)) = original_size {
         compute_output_size(ow, oh)
@@ -422,6 +442,48 @@ pub async fn call_image(
         detect_output_size(bytes)
     } else {
         "1024x1024".to_string()
+    };
+
+    // Parse the requested canvas size ("WxH").
+    let canvas_wh: Option<(u32, u32)> = size
+        .split_once('x')
+        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)));
+
+    // Resize the input image to EXACTLY the requested canvas size before
+    // uploading. The /16 snapping in compute_output_size slightly changes the
+    // aspect ratio (e.g. 1344x776 → 1344x768); if the uploaded image keeps
+    // the original AR while the model generates on the snapped AR, the
+    // round-trip (generate → resize_to_original) shifts content by several
+    // pixels and masked compositing shows visible seams. Uploading at the
+    // canvas AR makes the final resize back the exact inverse mapping.
+    let image_bytes = match (image_bytes, canvas_wh) {
+        (Some(ib), Some((cw, ch))) => {
+            let img = crate::image_utils::load_image_from_bytes(&ib)?;
+            if img.width() != cw || img.height() != ch {
+                let resized =
+                    img.resize_exact(cw, ch, image::imageops::FilterType::Lanczos3);
+                Some(crate::image_utils::image_to_png_bytes(&resized)?)
+            } else {
+                Some(ib)
+            }
+        }
+        (ib, _) => ib,
+    };
+
+    // OpenAI requires the mask to have exactly the same dimensions as the
+    // image — resize it to the same canvas size.
+    let mask_bytes = match (mask_bytes, canvas_wh) {
+        (Some(mb), Some((cw, ch))) => {
+            let mask = crate::image_utils::load_image_from_bytes(&mb)?;
+            if mask.width() != cw || mask.height() != ch {
+                let resized =
+                    mask.resize_exact(cw, ch, image::imageops::FilterType::Lanczos3);
+                Some(crate::image_utils::image_to_png_bytes(&resized)?)
+            } else {
+                Some(mb)
+            }
+        }
+        (mb, _) => mb,
     };
 
     let endpoint = if image_bytes.is_some() {
@@ -441,6 +503,7 @@ pub async fn call_image(
             &prompt,
             image_bytes.as_deref(),
             &size,
+            mask_bytes.as_deref(),
         )
         .await
         {
