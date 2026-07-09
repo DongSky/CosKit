@@ -22,6 +22,8 @@ pub struct EditNode {
     pub created_at: f64,
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
+    #[serde(default)]
+    pub mask_image_path: String,
 
     // Transient progress fields — not persisted
     #[serde(skip)]
@@ -57,6 +59,7 @@ impl EditNode {
             error_msg: None,
             created_at: now_timestamp(),
             metadata: HashMap::new(),
+            mask_image_path: String::new(),
             progress_step: 0,
             progress_total: 0,
             progress_msg: String::new(),

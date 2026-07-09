@@ -72,3 +72,7 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Local test artifacts (mask verification outputs, scratch images)
+/test_output/
+/test-mask.png

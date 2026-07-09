@@ -114,6 +114,12 @@
         <path d="M12 3v-0" stroke="none"/>
       </svg>
     </label>
+    <button id="btn-mask" class="mask-btn" title="选区编辑（仅修改指定区域）">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="14" height="14" rx="2" stroke-dasharray="3 2"/>
+        <path d="M7 10h6M10 7v6"/>
+      </svg>
+    </button>
     <input type="text" id="prompt-input" placeholder="输入修图指令..." autocomplete="off">
     <button id="btn-send">发送</button>
   </div>
@@ -354,6 +360,64 @@ GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-imag
   </div>
 </div>
 
+<!-- Mask Editor Modal -->
+<div id="mask-editor-modal" class="mask-editor-modal" style="display:none;">
+  <div class="mask-editor-container">
+    <div class="mask-toolbar">
+      <button class="mask-tool active" data-tool="brush" title="画笔选区">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 17c2-2 4-6 6-8l5-5 3 3-5 5c-2 2-6 4-8 6l-1-1z"/>
+        </svg>
+        画笔
+      </button>
+      <button class="mask-tool" data-tool="rect" title="矩形选区">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="14" height="14" rx="1" stroke-dasharray="3 2"/>
+        </svg>
+        矩形
+      </button>
+      <button class="mask-tool" data-tool="polygon" title="多边形选区（双击闭合）">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="10,2 18,8 15,17 5,17 2,8"/>
+        </svg>
+        多边形
+      </button>
+      <button class="mask-tool" data-tool="eraser" title="橡皮擦（恢复保护区域）">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 17h10M3 13l4 4 8-8-4-4-8 8z"/>
+        </svg>
+        橡皮擦
+      </button>
+      <span class="mask-separator"></span>
+      <label class="mask-range-label">大小
+        <input type="range" id="mask-brush-size" min="5" max="100" value="30">
+      </label>
+      <label class="mask-range-label">羽化
+        <input type="range" id="mask-feather" min="0" max="30" value="0">
+      </label>
+      <span class="mask-separator"></span>
+      <button id="mask-undo" class="mask-action-btn" title="撤销">↩</button>
+      <button id="mask-redo" class="mask-action-btn" title="重做">↪</button>
+      <button id="mask-clear" class="mask-action-btn" title="清除选区">✕</button>
+      <button id="mask-invert" class="mask-action-btn" title="反选">⊘</button>
+      <button id="mask-poly-close" class="mask-action-btn mask-poly-close-btn" title="闭合多边形" style="display:none;">✓⬠</button>
+    </div>
+    <div class="mask-canvas-stack" id="mask-canvas-stack">
+      <canvas id="mask-layer-image"></canvas>
+      <canvas id="mask-layer-preview"></canvas>
+      <canvas id="mask-layer-draw"></canvas>
+      <canvas id="mask-layer-cursor"></canvas>
+    </div>
+    <div class="mask-footer">
+      <button id="mask-remove" class="btn-cancel mask-remove-btn">移除选区</button>
+      <span class="mask-footer-spacer"></span>
+      <button id="mask-cancel" class="btn-cancel">取消</button>
+      <button id="mask-confirm" class="btn-save">确认选区</button>
+    </div>
+  </div>
+</div>
+
+<script src="mask-editor.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
