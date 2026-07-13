@@ -587,3 +587,164 @@ pub async fn list_skills() -> Result<Value, String> {
         .collect();
     Ok(Value::Array(skills))
 }
+
+// ---------------------------------------------------------------------------
+// Layers
+// ---------------------------------------------------------------------------
+
+fn layer_to_value(layer: &crate::models::Layer) -> Value {
+    // Small preview thumb (PNG keeps the alpha of partial layers). Generated
+    // on demand — stacks are short and the panel fetches lazily.
+    let thumb = image_utils::load_image_from_path(&layer.image_path)
+        .ok()
+        .and_then(|img| {
+            let small = image_utils::resize_max_dimension(&img, 96);
+            let bytes = image_utils::image_to_png_bytes(&small).ok()?;
+            Some(format!(
+                "data:image/png;base64,{}",
+                image_utils::bytes_to_base64(&bytes)
+            ))
+        })
+        .unwrap_or_default();
+
+    json!({
+        "id": layer.id,
+        "name": layer.name,
+        "kind": layer.kind,
+        "opacity": layer.opacity,
+        "blend_mode": layer.blend_mode,
+        "visible": layer.visible,
+        "locked": layer.locked,
+        "has_mask": !layer.mask_path.is_empty(),
+        "thumb": thumb,
+    })
+}
+
+/// List a node's layer stack (bottom-to-top). Synthesizes and persists a base
+/// layer for legacy nodes so every completed node is layer-capable.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_layers(
+    state: State<'_, AppState>,
+    session_id: String,
+    node_id: String,
+) -> Result<Value, String> {
+    let layers = {
+        let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
+        let session = sessions.get_mut(&session_id).ok_or("session not found")?;
+        let node = session.nodes.get_mut(&node_id).ok_or("node not found")?;
+        if node.status != "done" {
+            return Ok(json!({"layers": [], "reason": "节点尚未完成"}));
+        }
+        let had_layers = !node.layers.is_empty();
+        engine::ensure_layers(node);
+        let layers = node.layers.clone();
+        if !had_layers && !layers.is_empty() {
+            engine::save_session(session);
+        }
+        layers
+    };
+
+    let values: Vec<Value> = layers.iter().map(layer_to_value).collect();
+    Ok(json!({"layers": values}))
+}
+
+/// Update mutable properties of one layer, then re-flatten the node image.
+/// Accepted props: name, opacity (0..1), blend_mode, visible, locked.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn update_layer(
+    state: State<'_, AppState>,
+    session_id: String,
+    node_id: String,
+    layer_id: String,
+    props: Value,
+) -> Result<Value, String> {
+    engine::modify_layers(&state.sessions, &session_id, &node_id, |layers| {
+        let layer = layers
+            .iter_mut()
+            .find(|l| l.id == layer_id)
+            .ok_or("layer not found")?;
+
+        // `locked` itself is always togglable; everything else requires the
+        // layer to be unlocked.
+        if let Some(locked) = props.get("locked").and_then(|v| v.as_bool()) {
+            layer.locked = locked;
+        }
+        let unlocking_only = props.as_object().map(|o| o.len() == 1 && o.contains_key("locked")).unwrap_or(false);
+        if layer.locked && !unlocking_only {
+            return Err(format!("图层「{}」已锁定", layer.name));
+        }
+
+        if let Some(name) = props.get("name").and_then(|v| v.as_str()) {
+            if !name.trim().is_empty() {
+                layer.name = name.trim().to_string();
+            }
+        }
+        if let Some(opacity) = props.get("opacity").and_then(|v| v.as_f64()) {
+            layer.opacity = (opacity as f32).clamp(0.0, 1.0);
+        }
+        if let Some(blend) = props.get("blend_mode").and_then(|v| v.as_str()) {
+            const MODES: [&str; 4] = ["normal", "multiply", "screen", "overlay"];
+            if MODES.contains(&blend) {
+                layer.blend_mode = blend.to_string();
+            }
+        }
+        if let Some(visible) = props.get("visible").and_then(|v| v.as_bool()) {
+            layer.visible = visible;
+        }
+        Ok(())
+    })?;
+    Ok(json!({"ok": true}))
+}
+
+/// Move a layer to a new stack index (0 = bottom).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn reorder_layer(
+    state: State<'_, AppState>,
+    session_id: String,
+    node_id: String,
+    layer_id: String,
+    new_index: usize,
+) -> Result<Value, String> {
+    engine::modify_layers(&state.sessions, &session_id, &node_id, |layers| {
+        let from = layers
+            .iter()
+            .position(|l| l.id == layer_id)
+            .ok_or("layer not found")?;
+        let to = new_index.min(layers.len() - 1);
+        if from != to {
+            let layer = layers.remove(from);
+            layers.insert(to, layer);
+        }
+        Ok(())
+    })?;
+    Ok(json!({"ok": true}))
+}
+
+/// Remove a layer from this node's stack. The raster file is kept — it may be
+/// shared with other nodes that inherited the same stack.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn delete_layer(
+    state: State<'_, AppState>,
+    session_id: String,
+    node_id: String,
+    layer_id: String,
+) -> Result<Value, String> {
+    engine::modify_layers(&state.sessions, &session_id, &node_id, |layers| {
+        let idx = layers
+            .iter()
+            .position(|l| l.id == layer_id)
+            .ok_or("layer not found")?;
+        if layers.len() <= 1 {
+            return Err("不能删除最后一个图层".to_string());
+        }
+        if layers[idx].kind == "base" {
+            return Err("基础图层不可删除".to_string());
+        }
+        if layers[idx].locked {
+            return Err(format!("图层「{}」已锁定", layers[idx].name));
+        }
+        layers.remove(idx);
+        Ok(())
+    })?;
+    Ok(json!({"ok": true}))
+}

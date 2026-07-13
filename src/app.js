@@ -153,6 +153,10 @@
     reset_data_dir: [],
     get_workflow_status: ["session_id", "node_id"],
     list_skills: [],
+    get_layers: ["session_id", "node_id"],
+    update_layer: ["session_id", "node_id", "layer_id", "props"],
+    reorder_layer: ["session_id", "node_id", "layer_id", "new_index"],
+    delete_layer: ["session_id", "node_id", "layer_id"],
   };
 
   function _buildArgs(method, args) {
@@ -841,12 +845,204 @@
     viewerImg.src = "";
     viewerSessionId = null;
     viewerNodeId = null;
+    layersPanel.style.display = "none";
+    layersList.innerHTML = "";
   }
 
   async function exportCurrentImage() {
     if (!viewerSessionId || !viewerNodeId) return;
     const result = await api().export_image(viewerSessionId, viewerNodeId);
     if (result.error) alert("导出失败: " + result.error);
+  }
+
+  // ── Layers panel ───────────────────────────────────────
+  const viewerLayersBtn = document.getElementById("viewer-layers");
+  const layersPanel = document.getElementById("layers-panel");
+  const layersList = document.getElementById("layers-list");
+
+  async function toggleLayersPanel() {
+    if (layersPanel.style.display === "none" || !layersPanel.style.display) {
+      layersPanel.style.display = "flex";
+      await refreshLayersPanel();
+    } else {
+      layersPanel.style.display = "none";
+    }
+  }
+
+  async function refreshLayersPanel() {
+    if (!viewerSessionId || !viewerNodeId) return;
+    layersList.innerHTML = '<div class="layers-empty">加载中...</div>';
+    try {
+      const result = await api().get_layers(viewerSessionId, viewerNodeId);
+      renderLayers(result.layers || [], result.reason);
+    } catch (e) {
+      layersList.innerHTML = "";
+      const err = document.createElement("div");
+      err.className = "layers-empty";
+      err.textContent = "加载失败: " + e;
+      layersList.appendChild(err);
+    }
+  }
+
+  // Stack is stored bottom-to-top; display top-most first (Photoshop order).
+  function renderLayers(layers, reason) {
+    layersList.innerHTML = "";
+    if (!layers.length) {
+      const empty = document.createElement("div");
+      empty.className = "layers-empty";
+      empty.textContent = reason || "暂无图层";
+      layersList.appendChild(empty);
+      return;
+    }
+    for (let i = layers.length - 1; i >= 0; i--) {
+      layersList.appendChild(buildLayerRow(layers[i], i, layers.length));
+    }
+  }
+
+  // Run a layer mutation, then refresh the panel, the enlarged image, and the
+  // node thumbnail in the chat (the flatten was rewritten server-side).
+  async function applyLayerOp(fn) {
+    try {
+      await fn();
+    } catch (e) {
+      alert("图层操作失败: " + e);
+    }
+    await refreshLayersPanel();
+    await refreshViewerAndThumb();
+  }
+
+  async function refreshViewerAndThumb() {
+    if (!viewerSessionId || !viewerNodeId) return;
+    const dataUrl = await api().get_image(viewerSessionId, viewerNodeId, false);
+    if (dataUrl) viewerImg.src = dataUrl;
+    const thumbEl = document.querySelector(`img[data-node-id="${viewerNodeId}"]`);
+    if (thumbEl) {
+      const t = await api().get_image(viewerSessionId, viewerNodeId, true);
+      if (t) thumbEl.src = t;
+    }
+  }
+
+  function buildLayerRow(layer, index, total) {
+    const sid = viewerSessionId;
+    const nid = viewerNodeId;
+    const row = document.createElement("div");
+    row.className = "layer-row" + (layer.visible ? "" : " layer-hidden");
+
+    // Visibility toggle
+    const eye = document.createElement("button");
+    eye.className = "layer-eye";
+    eye.title = layer.visible ? "隐藏图层" : "显示图层";
+    eye.textContent = layer.visible ? "👁" : "─";
+    eye.onclick = () =>
+      applyLayerOp(() => api().update_layer(sid, nid, layer.id, { visible: !layer.visible }));
+    row.appendChild(eye);
+
+    // Thumbnail
+    const thumb = document.createElement("div");
+    thumb.className = "layer-thumb";
+    if (layer.thumb) {
+      const img = document.createElement("img");
+      img.src = layer.thumb;
+      thumb.appendChild(img);
+    }
+    row.appendChild(thumb);
+
+    // Name + controls
+    const info = document.createElement("div");
+    info.className = "layer-info";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "layer-name";
+    nameEl.textContent = layer.name || (layer.kind === "base" ? "背景" : "图层");
+    if (layer.has_mask) {
+      const badge = document.createElement("span");
+      badge.className = "layer-mask-badge";
+      badge.textContent = "◱";
+      badge.title = "选区图层";
+      nameEl.appendChild(badge);
+    }
+    nameEl.title = "双击重命名";
+    nameEl.ondblclick = () => {
+      const name = prompt("图层名称", layer.name);
+      if (name && name.trim() && name.trim() !== layer.name) {
+        applyLayerOp(() => api().update_layer(sid, nid, layer.id, { name: name.trim() }));
+      }
+    };
+    info.appendChild(nameEl);
+
+    const controls = document.createElement("div");
+    controls.className = "layer-controls";
+
+    const blend = document.createElement("select");
+    blend.className = "layer-blend";
+    [["normal", "正常"], ["multiply", "正片叠底"], ["screen", "滤色"], ["overlay", "叠加"]].forEach(
+      ([value, label]) => {
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = label;
+        if (value === layer.blend_mode) opt.selected = true;
+        blend.appendChild(opt);
+      }
+    );
+    blend.onchange = () =>
+      applyLayerOp(() => api().update_layer(sid, nid, layer.id, { blend_mode: blend.value }));
+    controls.appendChild(blend);
+
+    const opacity = document.createElement("input");
+    opacity.type = "range";
+    opacity.min = "0";
+    opacity.max = "100";
+    opacity.value = String(Math.round(layer.opacity * 100));
+    opacity.className = "layer-opacity";
+    opacity.title = "不透明度";
+    // Recomposite only on release — every change rewrites the full-size flatten.
+    opacity.onchange = () =>
+      applyLayerOp(() =>
+        api().update_layer(sid, nid, layer.id, { opacity: Number(opacity.value) / 100 })
+      );
+    controls.appendChild(opacity);
+
+    info.appendChild(controls);
+    row.appendChild(info);
+
+    // Ordering / lock / delete
+    const ops = document.createElement("div");
+    ops.className = "layer-ops";
+
+    const up = document.createElement("button");
+    up.textContent = "▲";
+    up.title = "上移";
+    up.disabled = index >= total - 1;
+    up.onclick = () => applyLayerOp(() => api().reorder_layer(sid, nid, layer.id, index + 1));
+    ops.appendChild(up);
+
+    const down = document.createElement("button");
+    down.textContent = "▼";
+    down.title = "下移";
+    down.disabled = index <= 0;
+    down.onclick = () => applyLayerOp(() => api().reorder_layer(sid, nid, layer.id, index - 1));
+    ops.appendChild(down);
+
+    const lock = document.createElement("button");
+    lock.textContent = layer.locked ? "🔒" : "🔓";
+    lock.title = layer.locked ? "解锁" : "锁定";
+    lock.onclick = () =>
+      applyLayerOp(() => api().update_layer(sid, nid, layer.id, { locked: !layer.locked }));
+    ops.appendChild(lock);
+
+    const del = document.createElement("button");
+    del.textContent = "✕";
+    del.title = "删除图层";
+    del.disabled = layer.kind === "base" || total <= 1;
+    del.onclick = () => {
+      if (confirm(`删除图层「${layer.name}」？（不影响其他节点）`)) {
+        applyLayerOp(() => api().delete_layer(sid, nid, layer.id));
+      }
+    };
+    ops.appendChild(del);
+
+    row.appendChild(ops);
+    return row;
   }
 
   // ── UI mode switching ──────────────────────────────────
@@ -1306,6 +1502,13 @@
   viewerExport.addEventListener("click", (e) => {
     e.stopPropagation();
     exportCurrentImage();
+  });
+  viewerLayersBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleLayersPanel();
+  });
+  layersPanel.addEventListener("click", (e) => {
+    e.stopPropagation();
   });
   document.querySelector(".viewer-actions").addEventListener("click", (e) => {
     e.stopPropagation();

@@ -1,6 +1,74 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// A single raster layer of a node's document state.
+///
+/// A node's `layers` is a bottom-to-top stack; flattening the visible layers
+/// must reproduce the node's `image_path` content. All layer rasters are
+/// full-canvas RGBA PNGs at the session's original size — transparent pixels
+/// reveal the layers below. Layer image files are immutable once written and
+/// may be shared across nodes (a child inherits its parent's stack entries by
+/// reference), so removing a layer from one node never deletes the file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Layer {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// "base" (bottom content) | "edit" (AI edit result). Future kinds
+    /// (adjustment/text/import) must still carry a raster in `image_path`
+    /// so old versions degrade gracefully.
+    #[serde(default = "default_layer_kind")]
+    pub kind: String,
+    #[serde(default)]
+    pub image_path: String,
+    /// The selection mask that produced this layer (provenance, optional).
+    #[serde(default)]
+    pub mask_path: String,
+    /// 0.0..=1.0
+    #[serde(default = "default_layer_opacity")]
+    pub opacity: f32,
+    /// "normal" | "multiply" | "screen" | "overlay"
+    #[serde(default = "default_blend_mode")]
+    pub blend_mode: String,
+    #[serde(default = "default_layer_visible")]
+    pub visible: bool,
+    #[serde(default)]
+    pub locked: bool,
+}
+
+fn default_layer_kind() -> String {
+    "edit".to_string()
+}
+fn default_layer_opacity() -> f32 {
+    1.0
+}
+fn default_blend_mode() -> String {
+    "normal".to_string()
+}
+fn default_layer_visible() -> bool {
+    true
+}
+
+impl Layer {
+    pub fn new(kind: &str, name: &str, image_path: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string()[..12].to_string(),
+            name: name.to_string(),
+            kind: kind.to_string(),
+            image_path,
+            mask_path: String::new(),
+            opacity: 1.0,
+            blend_mode: "normal".to_string(),
+            visible: true,
+            locked: false,
+        }
+    }
+
+    pub fn new_base(image_path: String) -> Self {
+        Self::new("base", "背景", image_path)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditNode {
     pub id: String,
@@ -24,6 +92,10 @@ pub struct EditNode {
     pub metadata: HashMap<String, serde_json::Value>,
     #[serde(default)]
     pub mask_image_path: String,
+    /// Bottom-to-top layer stack. Empty = legacy flat node (image_path only);
+    /// a base layer is synthesized lazily on first layer access.
+    #[serde(default)]
+    pub layers: Vec<Layer>,
 
     // Transient progress fields — not persisted
     #[serde(skip)]
@@ -60,6 +132,7 @@ impl EditNode {
             created_at: now_timestamp(),
             metadata: HashMap::new(),
             mask_image_path: String::new(),
+            layers: Vec::new(),
             progress_step: 0,
             progress_total: 0,
             progress_msg: String::new(),

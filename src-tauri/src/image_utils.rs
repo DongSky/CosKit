@@ -195,3 +195,134 @@ pub fn generate_mask_overlay(image_b64: &str, mask_b64: &str) -> Result<String, 
     let png_bytes = image_to_png_bytes(&overlay_img)?;
     Ok(bytes_to_base64(&png_bytes))
 }
+
+// ---------------------------------------------------------------------------
+// Layer compositing
+// ---------------------------------------------------------------------------
+
+/// One layer's render inputs for `composite_layers`.
+pub struct LayerInput<'a> {
+    pub image: &'a DynamicImage,
+    /// 0.0..=1.0, multiplied into the layer's own alpha channel.
+    pub opacity: f32,
+    /// "normal" | "multiply" | "screen" | "overlay" (unknown → normal)
+    pub blend_mode: &'a str,
+    pub visible: bool,
+}
+
+/// Separable blend function on normalized channels (0..1).
+fn blend_channel(mode: &str, dst: f32, src: f32) -> f32 {
+    match mode {
+        "multiply" => dst * src,
+        "screen" => 1.0 - (1.0 - dst) * (1.0 - src),
+        "overlay" => {
+            if dst <= 0.5 {
+                2.0 * dst * src
+            } else {
+                1.0 - 2.0 * (1.0 - dst) * (1.0 - src)
+            }
+        }
+        _ => src, // normal
+    }
+}
+
+/// Flatten a bottom-to-top layer stack into a single image.
+///
+/// Standard Porter-Duff "over" with W3C separable blend modes: for each pixel,
+/// with dst = accumulated canvas and src = the layer (alpha pre-multiplied by
+/// layer opacity),
+///   out_a = a_s + a_d·(1−a_s)
+///   out_c = ( a_s·((1−a_d)·c_s + a_d·B(c_d,c_s)) + a_d·c_d·(1−a_s) ) / out_a
+/// A stack of [opaque base, masked edit layer] with normal blend at opacity 1
+/// reproduces `composite_with_mask` exactly.
+///
+/// The canvas takes the first layer's dimensions; other layers are resized to
+/// match if they differ (defensive — stacks are stored at a uniform size).
+pub fn composite_layers(layers: &[LayerInput]) -> Result<DynamicImage, String> {
+    let first = layers.first().ok_or("composite_layers: empty layer stack")?;
+    let (w, h) = (first.image.width(), first.image.height());
+
+    // Accumulator in normalized straight-alpha RGBA
+    let mut acc = vec![[0.0f32; 4]; (w * h) as usize];
+
+    for layer in layers {
+        if !layer.visible || layer.opacity <= 0.0 {
+            continue;
+        }
+        let opacity = layer.opacity.clamp(0.0, 1.0);
+        let resized;
+        let img = if layer.image.width() != w || layer.image.height() != h {
+            resized = layer
+                .image
+                .resize_exact(w, h, image::imageops::FilterType::Lanczos3);
+            &resized
+        } else {
+            layer.image
+        };
+        let src_rgba = img.to_rgba8();
+
+        for (i, px) in src_rgba.pixels().enumerate() {
+            let a_s = px[3] as f32 / 255.0 * opacity;
+            if a_s <= 0.0 {
+                continue;
+            }
+            let dst = &mut acc[i];
+            let a_d = dst[3];
+            let out_a = a_s + a_d * (1.0 - a_s);
+            if out_a <= 0.0 {
+                continue;
+            }
+            for c in 0..3 {
+                let c_s = px[c] as f32 / 255.0;
+                let c_d = dst[c];
+                let mixed = (1.0 - a_d) * c_s + a_d * blend_channel(layer.blend_mode, c_d, c_s);
+                dst[c] = (a_s * mixed + a_d * c_d * (1.0 - a_s)) / out_a;
+            }
+            dst[3] = out_a;
+        }
+    }
+
+    let mut output = RgbaImage::new(w, h);
+    for (i, px) in acc.iter().enumerate() {
+        let x = i as u32 % w;
+        let y = i as u32 / w;
+        output.put_pixel(
+            x,
+            y,
+            Rgba([
+                (px[0] * 255.0).round().clamp(0.0, 255.0) as u8,
+                (px[1] * 255.0).round().clamp(0.0, 255.0) as u8,
+                (px[2] * 255.0).round().clamp(0.0, 255.0) as u8,
+                (px[3] * 255.0).round().clamp(0.0, 255.0) as u8,
+            ]),
+        );
+    }
+    Ok(DynamicImage::ImageRgba8(output))
+}
+
+/// Extract an AI edit result into a standalone edit layer.
+///
+/// Layer alpha is the inverse of the protection mask (mask alpha=255 = protect
+/// → layer alpha 0; mask alpha=0 = edit region → layer alpha 255; partial
+/// values map linearly, preserving feathered/anti-aliased selection edges).
+/// Compositing [base, this layer] therefore equals `composite_with_mask`.
+pub fn extract_edit_layer(result: &DynamicImage, mask: &DynamicImage) -> DynamicImage {
+    let (w, h) = (result.width(), result.height());
+    let mask_resized = if mask.width() != w || mask.height() != h {
+        mask.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
+    } else {
+        mask.clone()
+    };
+    let result_rgba = result.to_rgba8();
+    let mask_rgba = mask_resized.to_rgba8();
+
+    let mut output = RgbaImage::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let px = result_rgba.get_pixel(x, y);
+            let mask_a = mask_rgba.get_pixel(x, y)[3];
+            output.put_pixel(x, y, Rgba([px[0], px[1], px[2], 255 - mask_a]));
+        }
+    }
+    DynamicImage::ImageRgba8(output)
+}

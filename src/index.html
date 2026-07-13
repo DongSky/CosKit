@@ -129,6 +129,13 @@
 <div id="image-viewer" class="image-viewer" style="display:none;">
   <img id="viewer-img" src="">
   <div class="viewer-actions">
+    <div id="viewer-layers" class="viewer-btn" title="图层">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="10 2 18 6.5 10 11 2 6.5"/>
+        <polyline points="2 10.5 10 15 18 10.5"/>
+        <polyline points="2 14.5 10 19 18 14.5"/>
+      </svg>
+    </div>
     <div id="viewer-export" class="viewer-btn" title="导出图片">
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 14v3h14v-3"/>
@@ -137,6 +144,16 @@
       </svg>
     </div>
     <div id="viewer-close" class="viewer-btn">✕</div>
+  </div>
+
+  <!-- Layers panel (per-node layer stack) -->
+  <div id="layers-panel" class="layers-panel" style="display:none;">
+    <div class="layers-header">
+      <span>图层</span>
+      <span class="layers-header-hint">自上而下</span>
+    </div>
+    <div id="layers-list" class="layers-list"></div>
+    <div class="layers-hint">调整后将即时重新合成当前节点图像</div>
   </div>
 </div>
 

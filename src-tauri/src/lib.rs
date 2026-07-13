@@ -78,6 +78,10 @@ pub fn run() {
             commands::reset_data_dir,
             commands::get_workflow_status,
             commands::list_skills,
+            commands::get_layers,
+            commands::update_layer,
+            commands::reorder_layer,
+            commands::delete_layer,
         ])
         .run(tauri::generate_context!())
         .expect("error running CosKit");
