@@ -5,7 +5,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::gemini_client;
 use crate::image_utils;
-use crate::models::{EditNode, PipelineModules, ReferenceImage, Session};
+use crate::models::{EditNode, Layer, PipelineModules, ReferenceImage, Session};
 use crate::planner;
 use crate::reviewer;
 use crate::settings;
@@ -67,26 +67,24 @@ pub fn load_session(session_id: &str) -> Option<Session> {
 fn repair_session_paths(session: &mut Session) -> bool {
     let sdir = data_dir().join(&session.id);
     let mut changed = false;
-    for node in session.nodes.values_mut() {
-        if !node.image_path.is_empty() && !std::path::Path::new(&node.image_path).exists() {
-            if let Some(name) = std::path::Path::new(&node.image_path).file_name() {
+    let repair = |path: &mut String, sdir: &std::path::Path, changed: &mut bool| {
+        if !path.is_empty() && !std::path::Path::new(path.as_str()).exists() {
+            if let Some(name) = std::path::Path::new(path.as_str()).file_name() {
                 let candidate = sdir.join(name);
                 if candidate.exists() {
-                    node.image_path = candidate.to_string_lossy().to_string();
-                    changed = true;
+                    *path = candidate.to_string_lossy().to_string();
+                    *changed = true;
                 }
             }
         }
-        if !node.thumbnail_path.is_empty()
-            && !std::path::Path::new(&node.thumbnail_path).exists()
-        {
-            if let Some(name) = std::path::Path::new(&node.thumbnail_path).file_name() {
-                let candidate = sdir.join(name);
-                if candidate.exists() {
-                    node.thumbnail_path = candidate.to_string_lossy().to_string();
-                    changed = true;
-                }
-            }
+    };
+    for node in session.nodes.values_mut() {
+        repair(&mut node.image_path, &sdir, &mut changed);
+        repair(&mut node.thumbnail_path, &sdir, &mut changed);
+        repair(&mut node.mask_image_path, &sdir, &mut changed);
+        for layer in node.layers.iter_mut() {
+            repair(&mut layer.image_path, &sdir, &mut changed);
+            repair(&mut layer.mask_path, &sdir, &mut changed);
         }
     }
     changed
@@ -157,6 +155,7 @@ pub fn create_session(image_data: &[u8], filename: &str) -> Result<Session, Stri
     root.thumbnail_path = thumb_path.to_string_lossy().to_string();
     root.note = format!("{filename} · {}×{}", original_size.0, original_size.1);
     root.status = "done".to_string();
+    root.layers = vec![Layer::new_base(root.image_path.clone())];
 
     let mut session = Session::new(sid, root_id.clone(), original_size);
     session.nodes.insert(root_id.clone(), root);
@@ -500,7 +499,11 @@ async fn run_edit_pipeline(
                 }
             };
 
-            // If mask was provided, composite: protect original pixels outside mask
+            // If mask was provided, composite: protect original pixels outside
+            // mask. Keep the raw (pre-composite) API result around — the edit
+            // layer must be cut from it, not from the composite, or partially
+            // transparent selection edges would be blended twice.
+            let mut edit_layer_img: Option<image::DynamicImage> = None;
             let result_img = if let Some(ref mask_b64) = mask_base64 {
                 match image_utils::base64_to_bytes(mask_b64)
                     .and_then(|b| image_utils::load_image_from_bytes(&b))
@@ -513,6 +516,10 @@ async fn run_edit_pipeline(
                                 Ok(img) => img,
                                 Err(_) => api_result_img.clone(),
                             };
+                        edit_layer_img = Some(image_utils::extract_edit_layer(
+                            &api_result_img,
+                            &mask_resized,
+                        ));
                         image_utils::composite_with_mask(&parent_img, &api_result_img, &mask_resized)
                     }
                     Err(e) => {
@@ -548,12 +555,31 @@ async fn run_edit_pipeline(
 
             let img_path_str = img_path.to_string_lossy().to_string();
             let thumb_path_str = thumb_path.to_string_lossy().to_string();
+
+            // Build the node's layer stack: inherit the parent's stack (by
+            // reference — layer files are immutable and shared), then push
+            // this edit as a new layer on top. Masked edits become a
+            // partial-alpha layer cut from the raw result; full edits become
+            // an opaque layer pointing at the node's own result image.
+            let layers = build_layer_stack(
+                &sessions,
+                &session_id,
+                &node_id,
+                &parent_image_path,
+                &prompt,
+                edit_layer_img,
+                &sdir,
+                &img_path_str,
+                &mask_path_str,
+            );
+
             update_node(&sessions, &session_id, &node_id, |node| {
                 node.image_path = img_path_str;
                 node.thumbnail_path = thumb_path_str;
                 node.mask_image_path = mask_path_str;
                 node.note = note;
                 node.status = "done".to_string();
+                node.layers = layers;
             });
             save_session_from_map(&sessions, &session_id);
         }
@@ -876,4 +902,183 @@ async fn run_modular_pipeline(
     });
 
     Ok((result_bytes, note))
+}
+
+// ---------------------------------------------------------------------------
+// Layers
+// ---------------------------------------------------------------------------
+//
+// Invariants:
+// - Layer raster files are immutable once written and may be shared across
+//   nodes (children inherit the parent's stack by path reference). They are
+//   never overwritten or deleted by layer operations — only session deletion
+//   removes them.
+// - `recomposite_node` therefore writes the flatten to a dedicated
+//   `flat_<node_id>.png`, never to a file any layer references (the root's
+//   base layer points at original.png, which must stay pristine).
+
+/// Derive a short display name for an edit layer from its prompt.
+fn layer_name_from_prompt(prompt: &str, masked: bool) -> String {
+    let trimmed = prompt.trim();
+    if trimmed.is_empty() {
+        return if masked {
+            "选区编辑".to_string()
+        } else {
+            "全图编辑".to_string()
+        };
+    }
+    let name: String = trimmed.chars().take(12).collect();
+    if trimmed.chars().count() > 12 {
+        format!("{name}…")
+    } else {
+        name
+    }
+}
+
+/// Synthesize a base layer for legacy nodes created before layers existed.
+/// The node's flat image becomes the (immutable) base raster.
+pub fn ensure_layers(node: &mut EditNode) {
+    if node.layers.is_empty() && node.status == "done" && !node.image_path.is_empty() {
+        node.layers.push(Layer::new_base(node.image_path.clone()));
+    }
+}
+
+/// Build the layer stack for a freshly completed edit node.
+#[allow(clippy::too_many_arguments)]
+fn build_layer_stack(
+    sessions: &RwLock<HashMap<String, Session>>,
+    session_id: &str,
+    node_id: &str,
+    parent_image_path: &str,
+    prompt: &str,
+    edit_layer_img: Option<image::DynamicImage>,
+    sdir: &std::path::Path,
+    result_image_path: &str,
+    mask_path: &str,
+) -> Vec<Layer> {
+    // Inherit the parent's stack (metadata copy; raster files shared by path).
+    let mut layers: Vec<Layer> = sessions
+        .read()
+        .ok()
+        .and_then(|lock| {
+            let session = lock.get(session_id)?;
+            let parent_id = session.nodes.get(node_id)?.parent_id.clone()?;
+            Some(session.nodes.get(&parent_id)?.layers.clone())
+        })
+        .unwrap_or_default();
+    if layers.is_empty() {
+        // Legacy parent without layer data — its flat image becomes the base.
+        layers.push(Layer::new_base(parent_image_path.to_string()));
+    }
+
+    let masked = edit_layer_img.is_some();
+    let mut layer = Layer::new("edit", &layer_name_from_prompt(prompt, masked), String::new());
+    let layer_path = sdir.join(format!("layer_{node_id}.png"));
+
+    let saved = match edit_layer_img {
+        // Masked edit: partial-alpha raster cut from the raw API result.
+        Some(img) => image_utils::save_png(&img, &layer_path).map(|_| {
+            layer.mask_path = mask_path.to_string();
+        }),
+        // Full-image edit: the result is the layer content. Copy it so the
+        // layer raster stays immutable even if the node image is rewritten
+        // by a later recomposite.
+        None => std::fs::copy(result_image_path, &layer_path)
+            .map(|_| ())
+            .map_err(|e| e.to_string()),
+    };
+
+    match saved {
+        Ok(()) => layer.image_path = layer_path.to_string_lossy().to_string(),
+        Err(e) => {
+            eprintln!("[CosKit] layer raster save failed (layer will reference flat result): {e}");
+            layer.image_path = result_image_path.to_string();
+        }
+    }
+    layers.push(layer);
+    layers
+}
+
+/// Re-flatten a node's layer stack and repoint the node image at the result.
+pub fn recomposite_node(
+    sessions: &RwLock<HashMap<String, Session>>,
+    session_id: &str,
+    node_id: &str,
+) -> Result<(), String> {
+    // Snapshot layer metadata under the read lock; file IO happens outside.
+    let (layers, thumb_path_existing) = {
+        let lock = sessions.read().map_err(|e| e.to_string())?;
+        let session = lock.get(session_id).ok_or("session not found")?;
+        let node = session.nodes.get(node_id).ok_or("node not found")?;
+        if node.status != "done" {
+            return Err("节点尚未完成，无法调整图层".to_string());
+        }
+        if node.layers.is_empty() {
+            return Err("该节点没有图层数据".to_string());
+        }
+        (node.layers.clone(), node.thumbnail_path.clone())
+    };
+
+    let mut images = Vec::with_capacity(layers.len());
+    for l in &layers {
+        images.push(
+            image_utils::load_image_from_path(&l.image_path)
+                .map_err(|e| format!("图层「{}」加载失败: {e}", l.name))?,
+        );
+    }
+    let inputs: Vec<image_utils::LayerInput> = layers
+        .iter()
+        .zip(images.iter())
+        .map(|(l, img)| image_utils::LayerInput {
+            image: img,
+            opacity: l.opacity,
+            blend_mode: &l.blend_mode,
+            visible: l.visible,
+        })
+        .collect();
+    let flat = image_utils::composite_layers(&inputs)?;
+
+    let sdir = data_dir().join(session_id);
+    let flat_path = sdir.join(format!("flat_{node_id}.png"));
+    image_utils::save_png(&flat, &flat_path)?;
+
+    let thumb_path = if thumb_path_existing.is_empty() {
+        sdir.join(format!("{node_id}_thumb.jpg"))
+            .to_string_lossy()
+            .to_string()
+    } else {
+        thumb_path_existing
+    };
+    let _ = image_utils::make_thumbnail(&flat, std::path::Path::new(&thumb_path));
+
+    let flat_path_str = flat_path.to_string_lossy().to_string();
+    update_node(sessions, session_id, node_id, |node| {
+        node.image_path = flat_path_str;
+        node.thumbnail_path = thumb_path;
+    });
+    save_session_from_map(sessions, session_id);
+    Ok(())
+}
+
+/// Run a mutation on a node's layer stack, then re-flatten and persist.
+pub fn modify_layers<F>(
+    sessions: &RwLock<HashMap<String, Session>>,
+    session_id: &str,
+    node_id: &str,
+    f: F,
+) -> Result<(), String>
+where
+    F: FnOnce(&mut Vec<Layer>) -> Result<(), String>,
+{
+    {
+        let mut lock = sessions.write().map_err(|e| e.to_string())?;
+        let session = lock.get_mut(session_id).ok_or("session not found")?;
+        let node = session.nodes.get_mut(node_id).ok_or("node not found")?;
+        if node.status != "done" {
+            return Err("节点尚未完成，无法调整图层".to_string());
+        }
+        ensure_layers(node);
+        f(&mut node.layers)?;
+    }
+    recomposite_node(sessions, session_id, node_id)
 }
