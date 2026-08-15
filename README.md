@@ -1,11 +1,12 @@
 # CosKit
 
-AI 驱动的人像修图桌面应用，支持 **Gemini 兼容 API**、**OpenAI 兼容 API**，以及 **Boogu-Image-Edit 本地模型** 等模型后端，实现智能修图、背景替换和 Cosplay 特效。
+AI 驱动的人像修图桌面应用，支持 **Gemini 兼容 API**、**OpenAI 兼容 API**、**通义千问兼容 API**，以及 **Boogu-Image-Edit 本地模型** 等模型后端，实现智能修图、背景替换和 Cosplay 特效。
 
 通过 [boogu_image_edit_model_parallel_server](https://github.com/DongSky/boogu_image_edit_model_parallel_server) 项目，CosKit 可以调用运行在你自己机器（或局域网服务器）上的 **Boogu-Image-0.1-Edit** 本地模型修图，无需依赖云端 API。详见 [使用 Boogu 本地模型](#使用-boogu-本地模型)。
 
 ## News
 
+- **2026-08**：新增 **本地美颜滤镜**（实验性）。集成 [GPUPixel](https://github.com/pixpark/gpupixel) 与 [PixelFreeEffects](https://github.com/uu-code007/PixelFreeEffects) 双后端，美白/磨皮/锐化在本地 GPU 完成；两后端可同时启用且互不冲突（已通过 23 项 GPU 单元与集成测试）。详见 [本地美颜滤镜](#本地美颜滤镜实验性)。
 - **2026-07**：新增 **Boogu-Image-Edit 本地模型** 支持。借助 [boogu_image_edit_model_parallel_server](https://github.com/DongSky/boogu_image_edit_model_parallel_server) 将 Boogu-Image-0.1-Edit 部署为 OpenAI 兼容服务，即可在本地 GPU 上完成全部修图推理，图片数据不出本地。配置方式见 [使用 Boogu 本地模型](#使用-boogu-本地模型)。
 
 ## 演示
@@ -17,9 +18,10 @@ AI 驱动的人像修图桌面应用，支持 **Gemini 兼容 API**、**OpenAI �
 - **智能修图**：上传照片，输入自然语言指令，AI 自动完成美颜、磨皮、光线优化
 - **背景替换**：自动分析场景并推荐匹配背景，保持透视一致性
 - **Cosplay 特效**：识别 Cosplay 摄影，自动添加轻度氛围光效和粒子效果
-- **多模型支持**：文本模型和图像模型可独立切换 Gemini / OpenAI 兼容 API 提供商
+- **多模型支持**：文本模型和图像模型可独立切换 Gemini / OpenAI / 通义千问兼容 API 提供商
   - Gemini 兼容 API：`gemini-3.1-pro-preview`（文本）、`gemini-3-pro-image-preview`（图像）
   - OpenAI 兼容 API：`gpt-5.5`（文本）、`gpt-image-2`（图像）
+  - 通义千问兼容 API：`qwen-vl-max`（文本）、`qwen-image-edit`（图像），默认接入阿里云百炼 OpenAI compatible-mode
 - **本地模型支持**：借助 [boogu_image_edit_model_parallel_server](https://github.com/DongSky/boogu_image_edit_model_parallel_server) 部署 Boogu-Image-Edit 本地模型，以 OpenAI 兼容协议接入图像修图，数据不出本地
 - **Provider 配置记忆**：切换提供商时自动保存/恢复各自的 API 参数
 - **分支编辑**：基于任意历史节点创建新分支，支持树状编辑历史
@@ -207,6 +209,63 @@ Boogu 服务的 `/v1/images/edits` 除标准字段外，还支持通过表单额
 - `negative_instruction`——默认使用 Boogu 标准负面提示模板
 
 这些属于 Boogu 扩展参数；CosKit 当前通过标准 OpenAI 字段调用，如需定制上述参数可直接调整服务端默认值。
+
+## 本地美颜滤镜（实验性）
+
+CosKit 集成了两个本地美颜滤镜后端，作为可选编译特性提供。全部处理在本地 GPU 完成，无需网络。
+
+### 支持的提供商
+
+| 提供商 | 来源 | 功能 | 编译特性 |
+|--------|------|------|----------|
+| **GPUPixel** | [pixpark/gpupixel](https://github.com/pixpark/gpupixel)（开源，Apache-2.0） | 美白、磨皮 | `gpupixel` |
+| **PixelFreeEffects** | [uu-code007/PixelFreeEffects](https://github.com/uu-code007/PixelFreeEffects)（预编译 SDK） | 美白、磨皮、瘦脸、大眼 | `pixelfree` |
+
+### 构建方式
+
+```bash
+cd src-tauri
+
+# 仅 GPUPixel
+cargo build --features gpupixel
+
+# 仅 PixelFreeEffects
+cargo build --features pixelfree
+
+# 同时启用两者（已通过冲突检测集成测试）
+cargo build --features "gpupixel,pixelfree"
+```
+
+**前置条件**：
+- GPUPixel：使用官方 v1.3.1 预编译 framework（已内置于 `src-tauri/vendor/gpupixel-sys/prebuilt/`），无需从源码编译
+- PixelFreeEffects：静态库已内置于 `src-tauri/vendor/pixelfree-sys/`；运行时需要授权文件 `pixelfreeAuth.lic` 和模型文件 `filter_model.bundle`（约 18 MB），**应用内可自动下载**：设置 → 本地美颜 → 同意协议 → 下载资源。文件从 GitHub 拉取（不通时自动切换 jsDelivr 镜像，两者均已验证可用），经 SHA-256 校验后存入应用数据目录 `pixelfree_res/`。也可手动用环境变量 `PIXELFREE_RES_DIR` 指定资源目录。演示授权仅供个人评估，商用请联系厂商
+
+### 使用方式
+
+在启用了美颜特性的构建中，输入栏会出现 ✨ 美颜按钮：选择引擎（GPUPixel / PixelFree）→ 调节滑块（美白/磨皮/锐化，PixelFree 另有红润/亮眼/瘦脸/大眼）→ 应用。处理完全在本地 GPU 上进行，结果作为新的编辑节点进入分支历史，与云端修图节点一样支持图层、回退和导出。
+
+### 统一参数接口
+
+两个提供商通过统一的 `BeautyParams` 抽象层调用（`src-tauri/src/beauty_filter.rs`），参数归一化到 0.0–1.0：
+
+- `whitening`（美白）、`smoothing`（磨皮）：两者均支持
+- `face_lift`（瘦脸）、`eye_enlarge`（大眼）：仅 PixelFreeEffects 支持（GPUPixel 下为空操作）
+
+### 测试
+
+```bash
+cd src-tauri
+
+# 非 GPU 测试（无需资源文件）
+cargo test --features "gpupixel,pixelfree"
+
+# 完整测试（含 GPU 与冲突检测集成测试，需要 PIXELFREE_RES_DIR）
+PIXELFREE_RES_DIR=/path/to/Res cargo test --features "gpupixel,pixelfree" -- --include-ignored --test-threads=1
+```
+
+集成测试（`tests/integration_test.rs`）覆盖两个库的共存场景：同时初始化、交替调用、快速切换（50 次）、大图处理（1024×1024）等，已在 macOS (Apple Silicon) 上全部通过（GPUPixel 7 项 + PixelFree 8 项 + 集成 8 项）。
+
+详细架构说明见 [docs/BEAUTY_INTEGRATION_ARCHITECTURE.md](docs/BEAUTY_INTEGRATION_ARCHITECTURE.md)。
 
 ## 从源码构建
 

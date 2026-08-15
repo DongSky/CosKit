@@ -1,10 +1,16 @@
 mod commands;
+pub mod beauty_filter;
+#[cfg(feature = "gpupixel")]
+pub mod beauty_gpupixel;
+#[cfg(feature = "pixelfree")]
+pub mod beauty_pixelfree;
 pub mod dotenv;
 pub mod engine;
 pub mod gemini_client;
 pub mod image_utils;
 pub mod models;
 pub mod openai_client;
+pub mod pixelfree_res;
 pub mod planner;
 pub mod reviewer;
 pub mod settings;
@@ -82,6 +88,10 @@ pub fn run() {
             commands::update_layer,
             commands::reorder_layer,
             commands::delete_layer,
+            commands::get_pixelfree_res_status,
+            commands::download_pixelfree_res,
+            commands::get_beauty_status,
+            commands::apply_beauty_filter,
         ])
         .run(tauri::generate_context!())
         .expect("error running CosKit");

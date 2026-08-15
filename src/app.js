@@ -157,6 +157,8 @@
     update_layer: ["session_id", "node_id", "layer_id", "props"],
     reorder_layer: ["session_id", "node_id", "layer_id", "new_index"],
     delete_layer: ["session_id", "node_id", "layer_id"],
+    get_beauty_status: [],
+    apply_beauty_filter: ["session_id", "parent_node_id", "provider", "params"],
   };
 
   function _buildArgs(method, args) {
@@ -643,6 +645,97 @@
     sessionData.active_path = result.active_path;
     await refreshSession();
     btnSend.disabled = false;
+  }
+
+  // ── Local beauty filter ────────────────────────────────
+  async function openBeautyPanel() {
+    if (!currentSessionId || !sessionData) return;
+    const modal = document.getElementById("beauty-modal");
+    const sel = document.getElementById("b-provider");
+    const hint = document.getElementById("b-provider-hint");
+
+    let st;
+    try {
+      st = await api().get_beauty_status();
+    } catch (e) {
+      alert("本地美颜状态查询失败: " + e);
+      return;
+    }
+    if (!st.providers || st.providers.length === 0) {
+      alert("当前构建未启用本地美颜。请以 --features \"gpupixel,pixelfree\" 重新构建。");
+      return;
+    }
+
+    sel.innerHTML = "";
+    st.providers.forEach((p) => {
+      const opt = document.createElement("option");
+      opt.value = p;
+      if (p === "gpupixel") opt.textContent = "GPUPixel（美白/磨皮/锐化）";
+      if (p === "pixelfree") {
+        opt.textContent = "PixelFree（含瘦脸/大眼等）";
+        if (!st.pixelfree_res_ready) {
+          opt.disabled = true;
+          opt.textContent += " — 资源未下载";
+        }
+      }
+      sel.appendChild(opt);
+    });
+    hint.textContent = st.pixelfree_res_ready
+      ? ""
+      : "PixelFree 需先在 设置 → 本地美颜 中下载运行资源。";
+
+    updateBeautyExtraVisibility();
+    modal.style.display = "";
+  }
+
+  function updateBeautyExtraVisibility() {
+    const sel = document.getElementById("b-provider");
+    document.getElementById("b-pf-extra").style.display =
+      sel.value === "pixelfree" ? "" : "none";
+  }
+
+  function closeBeautyPanel() {
+    document.getElementById("beauty-modal").style.display = "none";
+  }
+
+  function beautySlider(id) {
+    return Number(document.getElementById(id).value) / 100;
+  }
+
+  async function applyBeauty() {
+    if (!currentSessionId || !sessionData) return;
+    const sel = document.getElementById("b-provider");
+    const provider = sel.value;
+    if (!provider) return;
+
+    const params = {
+      whitening: beautySlider("b-white"),
+      smoothing: beautySlider("b-smooth"),
+      sharpening: beautySlider("b-sharpen"),
+    };
+    if (provider === "pixelfree") {
+      params.ruddy = beautySlider("b-ruddy");
+      params.eye_brighten = beautySlider("b-eye");
+      const thin = beautySlider("b-thin");
+      const bigeye = beautySlider("b-bigeye");
+      if (thin > 0 || bigeye > 0) {
+        params.face_reshape = { face_thinning: thin, eye_strength: bigeye };
+      }
+    }
+
+    const parentId = sessionData.active_path[sessionData.active_path.length - 1];
+    const applyBtn = document.getElementById("beauty-apply");
+    applyBtn.disabled = true;
+    try {
+      const result = await api().apply_beauty_filter(currentSessionId, parentId, provider, params);
+      sessionData.active_path = result.active_path;
+      closeBeautyPanel();
+      await refreshSession();
+    } catch (e) {
+      alert("美颜提交失败: " + e);
+    } finally {
+      applyBtn.disabled = false;
+    }
   }
 
   // ── Workflow progress rendering ──────────────────────
@@ -1191,9 +1284,67 @@
     document.getElementById("pane-api").style.display = tabName === "api" ? "" : "none";
     document.getElementById("pane-review").style.display = tabName === "review" ? "" : "none";
     document.getElementById("pane-prompts").style.display = tabName === "prompts" ? "" : "none";
+    document.getElementById("pane-beauty").style.display = tabName === "beauty" ? "" : "none";
     document.getElementById("pane-storage").style.display = tabName === "storage" ? "" : "none";
     // Load storage info when switching to storage tab
     if (tabName === "storage") loadStorageInfo();
+    if (tabName === "beauty") loadPfResStatus();
+  }
+
+  // ── PixelFree local beauty resources ───────────────────
+  async function loadPfResStatus() {
+    const statusEl = document.getElementById("pf-res-status");
+    const agreeEl = document.getElementById("s-pf-agree");
+    const btnEl = document.getElementById("btn-pf-download");
+    try {
+      const st = await invoke("get_pixelfree_res_status");
+      if (st.ready) {
+        statusEl.textContent = "✅ 资源已就绪：" + st.dir;
+        agreeEl.checked = true;
+        agreeEl.disabled = true;
+        btnEl.disabled = true;
+        btnEl.textContent = "已下载";
+      } else {
+        statusEl.textContent = st.built_with_pixelfree
+          ? "资源未下载"
+          : "资源未下载（注意：当前构建未启用 pixelfree 特性，下载后需以 --features pixelfree 构建才能生效）";
+        agreeEl.checked = !!st.agreed;
+        agreeEl.disabled = false;
+        btnEl.disabled = !agreeEl.checked;
+        btnEl.textContent = "下载资源";
+      }
+    } catch (e) {
+      statusEl.textContent = "状态查询失败: " + e;
+    }
+  }
+
+  async function downloadPfRes() {
+    const btnEl = document.getElementById("btn-pf-download");
+    const progEl = document.getElementById("pf-res-progress");
+    btnEl.disabled = true;
+    btnEl.textContent = "下载中…";
+    progEl.style.display = "";
+    progEl.textContent = "准备下载…";
+
+    let unlisten = null;
+    try {
+      if (window.__TAURI__.event && window.__TAURI__.event.listen) {
+        unlisten = await window.__TAURI__.event.listen("pixelfree-res-progress", (ev) => {
+          const p = ev.payload || {};
+          const phaseText = { downloading: "下载中", writing: "写入中", done: "完成", cached: "已缓存" }[p.phase] || p.phase;
+          progEl.textContent = `[${p.done}/${p.total}] ${p.file} — ${phaseText}`;
+        });
+      }
+      await invoke("download_pixelfree_res");
+      progEl.textContent = "✅ 全部资源下载完成（重启应用后生效）";
+    } catch (e) {
+      progEl.textContent = "❌ 下载失败: " + e;
+      btnEl.disabled = false;
+      btnEl.textContent = "重试下载";
+    } finally {
+      if (unlisten) unlisten();
+      loadPfResStatus();
+    }
   }
 
   async function resetSinglePrompt(promptKey) {
@@ -1550,6 +1701,25 @@
   // Tab switching
   document.querySelectorAll(".settings-tab").forEach((btn) => {
     btn.addEventListener("click", () => switchSettingsTab(btn.dataset.tab));
+  });
+
+  // PixelFree resource download (local beauty tab)
+  document.getElementById("s-pf-agree").addEventListener("change", (e) => {
+    document.getElementById("btn-pf-download").disabled = !e.target.checked;
+  });
+  document.getElementById("btn-pf-download").addEventListener("click", downloadPfRes);
+
+  // Local beauty panel
+  document.getElementById("btn-beauty").addEventListener("click", openBeautyPanel);
+  document.getElementById("beauty-close").addEventListener("click", closeBeautyPanel);
+  document.getElementById("beauty-cancel").addEventListener("click", closeBeautyPanel);
+  document.getElementById("beauty-apply").addEventListener("click", applyBeauty);
+  document.getElementById("b-provider").addEventListener("change", updateBeautyExtraVisibility);
+  document.querySelectorAll("#beauty-modal input[type=range]").forEach((slider) => {
+    slider.addEventListener("input", () => {
+      const label = document.querySelector(`#beauty-modal .b-val[data-for="${slider.id}"]`);
+      if (label) label.textContent = slider.value + "%";
+    });
   });
 
   // Provider switch handlers

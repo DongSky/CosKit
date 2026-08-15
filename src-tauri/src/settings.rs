@@ -275,6 +275,12 @@ pub fn load_settings() -> Settings {
                 if let Some(v) = saved.get("custom_data_dir").and_then(|v| v.as_str()) {
                     settings.custom_data_dir = v.to_string();
                 }
+                if let Some(v) = saved
+                    .get("pixelfree_agreement_accepted")
+                    .and_then(|v| v.as_bool())
+                {
+                    settings.pixelfree_agreement_accepted = v;
+                }
                 settings
             }
             Err(e) => {

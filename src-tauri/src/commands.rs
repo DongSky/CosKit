@@ -748,3 +748,86 @@ pub async fn delete_layer(
     })?;
     Ok(json!({"ok": true}))
 }
+
+// --- PixelFree beauty resources ---------------------------------------------
+
+#[tauri::command]
+pub async fn get_pixelfree_res_status() -> Result<Value, String> {
+    let s = settings::load_settings();
+    Ok(json!({
+        "ready": crate::pixelfree_res::resources_ready(),
+        "dir": crate::pixelfree_res::res_dir().to_string_lossy(),
+        "agreed": s.pixelfree_agreement_accepted,
+        "built_with_pixelfree": cfg!(feature = "pixelfree"),
+        "files": crate::pixelfree_res::RES_FILES.iter().map(|f| json!({
+            "name": f.name,
+            "size": f.size,
+        })).collect::<Vec<_>>(),
+    }))
+}
+
+/// Download PixelFree runtime resources after the user accepted the
+/// agreement in the UI. Emits "pixelfree-res-progress" events:
+/// { file, done, total, phase } with phase in
+/// downloading | writing | done | cached.
+#[tauri::command]
+pub async fn download_pixelfree_res(app: tauri::AppHandle) -> Result<Value, String> {
+    use tauri::Emitter;
+
+    // Persist the agreement (the UI only calls this after consent).
+    let mut s = settings::load_settings();
+    if !s.pixelfree_agreement_accepted {
+        s.pixelfree_agreement_accepted = true;
+        settings::save_settings(&s);
+    }
+
+    crate::pixelfree_res::download_all(|file, done, total, phase| {
+        let _ = app.emit(
+            "pixelfree-res-progress",
+            json!({ "file": file, "done": done, "total": total, "phase": phase }),
+        );
+    })
+    .await?;
+
+    Ok(json!({
+        "ok": true,
+        "dir": crate::pixelfree_res::res_dir().to_string_lossy(),
+    }))
+}
+
+// --- Local beauty filter ----------------------------------------------------
+
+#[tauri::command]
+pub async fn get_beauty_status() -> Result<Value, String> {
+    Ok(json!({
+        "providers": crate::beauty_filter::available_providers(),
+        "pixelfree_res_ready": crate::pixelfree_res::resources_ready(),
+    }))
+}
+
+/// Apply a local beauty filter as a new edit node (same lifecycle as
+/// submit_edit — frontend polls get_node_status until done).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn apply_beauty_filter(
+    state: State<'_, AppState>,
+    session_id: String,
+    parent_node_id: String,
+    provider: String,
+    params: crate::beauty_filter::BeautyParams,
+) -> Result<Value, String> {
+    let node = engine::submit_beauty_edit(&state, &session_id, &parent_node_id, &provider, params)?;
+
+    let active_path = {
+        let sessions = state.sessions.read().map_err(|e| e.to_string())?;
+        sessions
+            .get(&session_id)
+            .map(|s| s.active_path.clone())
+            .unwrap_or_default()
+    };
+
+    Ok(json!({
+        "node_id": node.id,
+        "status": node.status,
+        "active_path": active_path,
+    }))
+}

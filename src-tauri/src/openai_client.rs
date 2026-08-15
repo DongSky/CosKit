@@ -8,6 +8,19 @@ pub const DEFAULT_TEXT_MODEL: &str = "gpt-5.5";
 pub const DEFAULT_IMAGE_MODEL: &str = "gpt-image-2";
 pub const DEFAULT_BASE_URL: &str = "https://yunwu.ai/v1";
 
+// ---------------------------------------------------------------------------
+// Qwen (通义千问) OpenAI-compatible defaults.
+//
+// Qwen speaks the same wire format as OpenAI (chat-completions for the vision
+// text model, /images/edits + /images/generations for the image model), so it
+// routes through this same client — only the defaults and env-var names differ.
+// The default base URL is Alibaba Cloud Model Studio's OpenAI compatible-mode
+// endpoint; point it at any Qwen-compatible gateway via settings or QWEN_BASE_URL.
+// ---------------------------------------------------------------------------
+pub const QWEN_DEFAULT_TEXT_MODEL: &str = "qwen-vl-max";
+pub const QWEN_DEFAULT_IMAGE_MODEL: &str = "qwen-image-edit";
+pub const QWEN_DEFAULT_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+
 const PERMANENT_ERROR_KEYWORDS: &[&str] = &[
     "PROHIBITED_CONTENT",
     "SAFETY",
@@ -67,6 +80,35 @@ pub fn resolve_image_model(settings_model: &str) -> String {
         return env_trim.to_string();
     }
     DEFAULT_IMAGE_MODEL.to_string()
+}
+
+/// Resolve Qwen base URL: settings → QWEN_BASE_URL env → DashScope compatible-mode default.
+pub fn resolve_qwen_base_url(settings_url: &str) -> String {
+    let s = settings_url.trim();
+    if !s.is_empty() {
+        return s.trim_end_matches('/').to_string();
+    }
+    let env_val = crate::dotenv::get_env_var("QWEN_BASE_URL");
+    let env_trim = env_val.trim();
+    if !env_trim.is_empty() {
+        return env_trim.trim_end_matches('/').to_string();
+    }
+    QWEN_DEFAULT_BASE_URL.to_string()
+}
+
+/// Resolve Qwen API key: settings → QWEN_API_KEY env → DASHSCOPE_API_KEY env.
+pub fn resolve_qwen_api_key(settings_key: &str) -> String {
+    let s = settings_key.trim();
+    if !s.is_empty() {
+        return s.to_string();
+    }
+    let qwen = crate::dotenv::get_env_var("QWEN_API_KEY");
+    if !qwen.trim().is_empty() {
+        return qwen.trim().to_string();
+    }
+    crate::dotenv::get_env_var("DASHSCOPE_API_KEY")
+        .trim()
+        .to_string()
 }
 
 /// Convert Gemini-style `contents` JSON value into OpenAI chat-completion

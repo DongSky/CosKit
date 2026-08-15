@@ -120,6 +120,12 @@
         <path d="M7 10h6M10 7v6"/>
       </svg>
     </button>
+    <button id="btn-beauty" class="mask-btn" title="本地美颜（GPU 本地处理，不经云端）">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 2l1.8 4.5L16 8l-4.2 1.5L10 14l-1.8-4.5L4 8l4.2-1.5z"/>
+        <path d="M16 13l.9 2.1L19 16l-2.1.9L16 19l-.9-2.1L13 16l2.1-.9z"/>
+      </svg>
+    </button>
     <input type="text" id="prompt-input" placeholder="输入修图指令..." autocomplete="off">
     <button id="btn-send">发送</button>
   </div>
@@ -157,6 +163,48 @@
   </div>
 </div>
 
+<!-- Local beauty modal -->
+<div id="beauty-modal" class="settings-modal" style="display:none;">
+  <div class="settings-dialog" style="max-width:440px;">
+    <div class="settings-header">
+      <h2>本地美颜</h2>
+      <button class="settings-close" id="beauty-close">✕</button>
+    </div>
+    <div class="settings-body">
+      <div class="settings-section">
+        <label>处理引擎
+          <select id="b-provider"></select>
+        </label>
+        <p class="prompt-vars" id="b-provider-hint"></p>
+      </div>
+      <div class="settings-section">
+        <h3>基础美颜</h3>
+        <label>美白 <span class="b-val" data-for="b-white">30%</span>
+          <input type="range" id="b-white" min="0" max="100" value="30"></label>
+        <label>磨皮 <span class="b-val" data-for="b-smooth">40%</span>
+          <input type="range" id="b-smooth" min="0" max="100" value="40"></label>
+        <label>锐化 <span class="b-val" data-for="b-sharpen">20%</span>
+          <input type="range" id="b-sharpen" min="0" max="100" value="20"></label>
+      </div>
+      <div class="settings-section" id="b-pf-extra" style="display:none;">
+        <h3>高级（PixelFree）</h3>
+        <label>红润 <span class="b-val" data-for="b-ruddy">0%</span>
+          <input type="range" id="b-ruddy" min="0" max="100" value="0"></label>
+        <label>亮眼 <span class="b-val" data-for="b-eye">0%</span>
+          <input type="range" id="b-eye" min="0" max="100" value="0"></label>
+        <label>瘦脸 <span class="b-val" data-for="b-thin">0%</span>
+          <input type="range" id="b-thin" min="0" max="100" value="0"></label>
+        <label>大眼 <span class="b-val" data-for="b-bigeye">0%</span>
+          <input type="range" id="b-bigeye" min="0" max="100" value="0"></label>
+      </div>
+    </div>
+    <div class="settings-footer">
+      <button class="btn-cancel" id="beauty-cancel">取消</button>
+      <button class="btn-save" id="beauty-apply">应用</button>
+    </div>
+  </div>
+</div>
+
 <!-- Settings modal -->
 <div id="settings-modal" class="settings-modal" style="display:none;">
   <div class="settings-dialog">
@@ -169,6 +217,7 @@
       <button class="settings-tab active" data-tab="api">API 配置</button>
       <button class="settings-tab" data-tab="review">审核 Agent</button>
       <button class="settings-tab" data-tab="prompts">系统提示词</button>
+      <button class="settings-tab" data-tab="beauty">本地美颜</button>
       <button class="settings-tab" data-tab="storage">存储</button>
     </div>
 
@@ -181,9 +230,10 @@
             <select id="s-text-provider">
               <option value="gemini">Gemini 兼容 API</option>
               <option value="openai">OpenAI 兼容 API</option>
+              <option value="qwen">通义千问兼容 API</option>
             </select>
           </label>
-          <label>模型名称<input type="text" id="s-text-model" placeholder="gemini-3.1-pro-preview / gpt-5.5"></label>
+          <label>模型名称<input type="text" id="s-text-model" placeholder="gemini-3.1-pro-preview / gpt-5.5 / qwen-vl-max"></label>
           <label>Base URL<input type="text" id="s-text-base-url" placeholder="留空使用 .env 配置"></label>
           <label>API Key<input type="text" id="s-text-api-key" class="input-secret" placeholder="留空使用 .env 配置" autocomplete="off" spellcheck="false"></label>
           <label>超时 (ms)<input type="number" id="s-text-timeout" min="10000" step="1000"></label>
@@ -194,9 +244,10 @@
             <select id="s-image-provider">
               <option value="gemini">Gemini 兼容 API</option>
               <option value="openai">OpenAI 兼容 API</option>
+              <option value="qwen">通义千问兼容 API</option>
             </select>
           </label>
-          <label>模型名称<input type="text" id="s-image-model" placeholder="gemini-3.1-pro-image-preview / gpt-image-2"></label>
+          <label>模型名称<input type="text" id="s-image-model" placeholder="gemini-3.1-pro-image-preview / gpt-image-2 / qwen-image-edit"></label>
           <label>Base URL<input type="text" id="s-image-base-url" placeholder="留空使用 .env 配置"></label>
           <label>API Key<input type="text" id="s-image-api-key" class="input-secret" placeholder="留空使用文本模型 API Key" autocomplete="off" spellcheck="false"></label>
           <label>超时 (ms)<input type="number" id="s-image-timeout" min="10000" step="1000"></label>
@@ -224,9 +275,10 @@
               <option value="">未配置</option>
               <option value="gemini">Gemini 兼容 API</option>
               <option value="openai">OpenAI 兼容 API</option>
+              <option value="qwen">通义千问兼容 API</option>
             </select>
           </label>
-          <label>模型名称<input type="text" id="s-review-model" placeholder="如 gpt-4o / gemini-2.5-pro"></label>
+          <label>模型名称<input type="text" id="s-review-model" placeholder="如 gpt-4o / gemini-2.5-pro / qwen-vl-max"></label>
           <label>Base URL<input type="text" id="s-review-base-url" placeholder="留空使用默认地址"></label>
           <label>API Key<input type="text" id="s-review-api-key" class="input-secret" placeholder="审核模型的 API Key" autocomplete="off" spellcheck="false"></label>
         </div>
@@ -265,6 +317,31 @@
           </div>
           <p class="prompt-vars">变量: <code>{{TONE_CONSTRAINT}}</code> <code>{{EFFECT_PROMPT}}</code> <code>{{REFERENCE_IMAGES_HINT}}</code></p>
           <textarea id="s-prompt-effect" rows="6"></textarea>
+        </div>
+      </div>
+
+      <!-- Local beauty tab -->
+      <div class="settings-pane" id="pane-beauty" style="display:none;">
+        <div class="settings-section">
+          <h3>PixelFree 运行资源</h3>
+          <p class="prompt-vars">
+            PixelFree 本地美颜（磨皮/美白/瘦脸/大眼）需要两个运行资源文件（约 18 MB），
+            来自 <a href="https://github.com/uu-code007/PixelFreeEffects" target="_blank" rel="noopener">PixelFreeEffects</a>
+            开源仓库中的演示授权。下载前请阅读并同意以下条款：
+          </p>
+          <ul class="prompt-vars" style="margin:8px 0 12px 18px; line-height:1.7;">
+            <li>资源为厂商公开的<strong>演示版授权</strong>，仅供个人评估与非商业用途</li>
+            <li>商业使用需自行联系厂商（望图科技）购买正式授权</li>
+            <li>文件将从 GitHub 下载（自动切换 jsDelivr 镜像），并经 SHA-256 完整性校验</li>
+          </ul>
+          <label class="toggle-label">
+            <input type="checkbox" id="s-pf-agree"> 我已阅读并同意以上条款
+          </label>
+          <div class="storage-path-row" style="margin-top:10px;">
+            <button id="btn-pf-download" class="btn-storage-action" disabled>下载资源</button>
+            <span id="pf-res-status" class="prompt-vars"></span>
+          </div>
+          <div class="storage-meta" id="pf-res-progress" style="display:none;"></div>
         </div>
       </div>
 
@@ -348,6 +425,9 @@ GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-imag
             <li><code>OPENAI_API_KEY</code> — OpenAI 兼容 API 密钥</li>
             <li><code>OPENAI_BASE_URL</code> — OpenAI 兼容 API Base URL</li>
             <li><code>OPENAI_MODEL</code> / <code>OPENAI_IMAGE_MODEL</code> — 文本/图像模型名</li>
+            <li><code>QWEN_API_KEY</code>（或 <code>DASHSCOPE_API_KEY</code>）— 通义千问兼容 API 密钥</li>
+            <li><code>QWEN_BASE_URL</code> — 通义千问兼容 API Base URL（默认百炼 compatible-mode）</li>
+            <li><code>QWEN_MODEL</code> / <code>QWEN_IMAGE_MODEL</code> — 文本/图像模型名（默认 qwen-vl-max / qwen-image-edit）</li>
           </ul>
           <p class="help-note">设置面板中的配置优先级高于 .env 文件。留空则自动使用 .env 中的值。</p>
         </div>

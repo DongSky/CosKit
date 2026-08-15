@@ -15,6 +15,14 @@ pub const DEFAULT_IMAGE_MODEL: &str = "gemini-3.1-pro-image-preview";
 
 pub const PROVIDER_GEMINI: &str = "gemini";
 pub const PROVIDER_OPENAI: &str = "openai";
+pub const PROVIDER_QWEN: &str = "qwen";
+
+/// Providers that speak the OpenAI-compatible wire format and route through
+/// `openai_client` (chat-completions + /images/edits). Qwen (通义千问) is
+/// OpenAI-compatible, so it shares that path — only its defaults differ.
+pub fn is_openai_family(provider: &str) -> bool {
+    provider == PROVIDER_OPENAI || provider == PROVIDER_QWEN
+}
 
 const PERMANENT_ERROR_KEYWORDS: &[&str] =
     &["PROHIBITED_CONTENT", "SAFETY", "RECITATION", "BLOCKED"];
@@ -73,7 +81,19 @@ impl GeminiClients {
 
         // ----- Text model resolution -----
         let (text_url, text_openai_base, text_api_key, text_model) =
-            if text_provider == PROVIDER_OPENAI {
+            if text_provider == PROVIDER_QWEN {
+                let base = openai_client::resolve_qwen_base_url(&settings.text_base_url);
+                let key = openai_client::resolve_qwen_api_key(&settings.text_api_key);
+                let env_model = crate::dotenv::get_env_var("QWEN_MODEL").trim().to_string();
+                let model = if !settings.text_model.trim().is_empty() {
+                    settings.text_model.trim().to_string()
+                } else if !env_model.is_empty() {
+                    env_model
+                } else {
+                    openai_client::QWEN_DEFAULT_TEXT_MODEL.to_string()
+                };
+                (String::new(), base, key, model)
+            } else if text_provider == PROVIDER_OPENAI {
                 let base = openai_client::resolve_base_url(&settings.text_base_url);
                 let key = openai_client::resolve_api_key(&settings.text_api_key);
                 let env_model = crate::dotenv::get_env_var("OPENAI_MODEL")
@@ -127,7 +147,33 @@ impl GeminiClients {
 
         // ----- Image model resolution -----
         let (image_url, image_openai_base, image_api_key, image_model) =
-            if image_provider == PROVIDER_OPENAI {
+            if image_provider == PROVIDER_QWEN {
+                let base = openai_client::resolve_qwen_base_url(&settings.image_base_url);
+                let key_settings = settings.image_api_key.trim().to_string();
+                let key = if !key_settings.is_empty() {
+                    key_settings
+                } else {
+                    let env_key = openai_client::resolve_qwen_api_key("");
+                    if !env_key.is_empty() {
+                        env_key
+                    } else if text_provider == PROVIDER_QWEN && !text_api_key.is_empty() {
+                        text_api_key.clone()
+                    } else {
+                        String::new()
+                    }
+                };
+                let env_model = crate::dotenv::get_env_var("QWEN_IMAGE_MODEL")
+                    .trim()
+                    .to_string();
+                let model = if !settings.image_model.trim().is_empty() {
+                    settings.image_model.trim().to_string()
+                } else if !env_model.is_empty() {
+                    env_model
+                } else {
+                    openai_client::QWEN_DEFAULT_IMAGE_MODEL.to_string()
+                };
+                (String::new(), base, key, model)
+            } else if image_provider == PROVIDER_OPENAI {
                 let base = openai_client::resolve_base_url(&settings.image_base_url);
                 let key_settings = settings.image_api_key.trim().to_string();
                 let key = if !key_settings.is_empty() {
@@ -309,7 +355,7 @@ async fn dispatch_text(
     temperature: f64,
     max_tries: u32,
 ) -> Result<Value, String> {
-    if clients.text_provider == PROVIDER_OPENAI {
+    if is_openai_family(&clients.text_provider) {
         openai_client::call_text(
             &clients.text_client,
             &clients.text_openai_base,
@@ -342,7 +388,7 @@ async fn dispatch_image(
     original_size: Option<(u32, u32)>,
     mask_b64: Option<&str>,
 ) -> Result<Value, String> {
-    if clients.image_provider == PROVIDER_OPENAI {
+    if is_openai_family(&clients.image_provider) {
         openai_client::call_image(
             &clients.image_client,
             &clients.image_openai_base,
@@ -905,7 +951,7 @@ fn apply_mask_strategy(
     let Some(mask) = mask_b64 else {
         return Ok((prompt.to_string(), references.to_vec()));
     };
-    if clients.image_provider == PROVIDER_OPENAI {
+    if is_openai_family(&clients.image_provider) {
         return Ok((prompt.to_string(), references.to_vec()));
     }
     let enhanced = format!(
@@ -979,10 +1025,17 @@ pub async fn call_text_with_provider(
         .map_err(|e| format!("failed to build review client: {e}"))?;
     let _ = timeout; // suppress unused
 
-    if provider == PROVIDER_OPENAI {
+    if is_openai_family(provider) {
+        // Resolve an empty base URL to the provider's default (the review UI
+        // advertises "留空使用默认地址").
+        let resolved_base = if provider == PROVIDER_QWEN {
+            openai_client::resolve_qwen_base_url(base_url)
+        } else {
+            openai_client::resolve_base_url(base_url)
+        };
         openai_client::call_text(
             &client,
-            base_url,
+            &resolved_base,
             api_key,
             model,
             contents,

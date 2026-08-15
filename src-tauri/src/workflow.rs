@@ -540,6 +540,7 @@ mod tests {
             &plan,
             &[],
             false,
+            None,
         )
         .await;
 

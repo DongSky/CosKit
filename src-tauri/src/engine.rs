@@ -320,6 +320,167 @@ pub fn submit_edit(
     Ok(node)
 }
 
+/// Submit a local beauty-filter edit (GPUPixel / PixelFree). Creates a
+/// child node like `submit_edit` and processes it in the background — but
+/// entirely locally, no cloud API involved.
+pub fn submit_beauty_edit(
+    state: &AppState,
+    session_id: &str,
+    parent_node_id: &str,
+    provider: &str,
+    params: crate::beauty_filter::BeautyParams,
+) -> Result<EditNode, String> {
+    // Reject unknown/uncompiled providers before creating a node.
+    if !crate::beauty_filter::available_providers().contains(&provider) {
+        return Err(format!(
+            "本地美颜后端 {provider} 不可用（当前构建支持: {:?}）",
+            crate::beauty_filter::available_providers()
+        ));
+    }
+
+    let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
+    let session = sessions.get_mut(session_id).ok_or("session not found")?;
+
+    let provider_label = match provider {
+        "gpupixel" => "GPUPixel",
+        "pixelfree" => "PixelFree",
+        other => other,
+    };
+    let prompt = format!(
+        "本地美颜 ({provider_label})：美白 {:.0}% / 磨皮 {:.0}% / 锐化 {:.0}%",
+        params.whitening * 100.0,
+        params.smoothing * 100.0,
+        params.sharpening * 100.0
+    );
+
+    let nid = uuid::Uuid::new_v4().to_string()[..12].to_string();
+    let mut node = EditNode::new(nid.clone(), Some(parent_node_id.to_string()));
+    node.prompt = prompt.clone();
+    session.nodes.insert(nid.clone(), node.clone());
+
+    if let Some(parent) = session.nodes.get_mut(parent_node_id) {
+        parent.children.push(nid.clone());
+    }
+
+    let leaf = walk_to_leaf(session, &nid);
+    session.active_path = compute_active_path(session, &leaf);
+    save_session(session);
+
+    let parent_image_path = session
+        .nodes
+        .get(parent_node_id)
+        .map(|n| n.image_path.clone())
+        .unwrap_or_default();
+    let session_id = session_id.to_string();
+    let node_id = nid.clone();
+    let provider = provider.to_string();
+    let sessions_arc = Arc::clone(&state.sessions);
+
+    tokio::spawn(async move {
+        run_beauty_pipeline(
+            sessions_arc,
+            session_id,
+            node_id,
+            parent_image_path,
+            prompt,
+            provider,
+            params,
+        )
+        .await;
+    });
+
+    Ok(node)
+}
+
+async fn run_beauty_pipeline(
+    sessions: Arc<RwLock<HashMap<String, Session>>>,
+    session_id: String,
+    node_id: String,
+    parent_image_path: String,
+    prompt: String,
+    provider: String,
+    params: crate::beauty_filter::BeautyParams,
+) {
+    let fail = |sessions: &RwLock<HashMap<String, Session>>, msg: String| {
+        eprintln!("[CosKit] beauty edit error: {msg}");
+        update_node(sessions, &session_id, &node_id, |node| {
+            node.status = "error".to_string();
+            node.error_msg = Some(msg);
+        });
+        save_session_from_map(sessions, &session_id);
+    };
+
+    update_node(&sessions, &session_id, &node_id, |node| {
+        node.status = "processing".to_string();
+        node.progress_total = 1;
+        node.progress_msg = "本地美颜处理中…".to_string();
+    });
+    save_session_from_map(&sessions, &session_id);
+
+    let parent_img = match image_utils::load_image_from_path(&parent_image_path) {
+        Ok(img) => img,
+        Err(e) => return fail(&sessions, format!("failed to load parent image: {e}")),
+    };
+
+    let rgba = parent_img.to_rgba8();
+    let (width, height) = (rgba.width(), rgba.height());
+    let raw = rgba.into_raw();
+
+    // GL work happens on the dedicated beauty worker thread.
+    let result = tokio::task::spawn_blocking({
+        let provider = provider.clone();
+        let params = params.clone();
+        move || crate::beauty_filter::process_blocking(&provider, &params, raw, width, height)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("beauty task join error: {e}")));
+
+    let out = match result {
+        Ok(bytes) => bytes,
+        Err(e) => return fail(&sessions, e),
+    };
+
+    let out_img = match image::RgbaImage::from_raw(width, height, out) {
+        Some(buf) => image::DynamicImage::ImageRgba8(buf),
+        None => return fail(&sessions, "beauty output size mismatch".to_string()),
+    };
+
+    let sdir = data_dir().join(&session_id);
+    let _ = fs::create_dir_all(&sdir);
+    let img_path = sdir.join(format!("{node_id}.png"));
+    let thumb_path = sdir.join(format!("{node_id}_thumb.jpg"));
+
+    if let Err(e) = image_utils::save_png(&out_img, &img_path) {
+        return fail(&sessions, format!("failed to save image: {e}"));
+    }
+    let _ = image_utils::make_thumbnail(&out_img, &thumb_path);
+
+    let img_path_str = img_path.to_string_lossy().to_string();
+    let thumb_path_str = thumb_path.to_string_lossy().to_string();
+
+    let layers = build_layer_stack(
+        &sessions,
+        &session_id,
+        &node_id,
+        &parent_image_path,
+        &prompt,
+        None,
+        &sdir,
+        &img_path_str,
+        "",
+    );
+
+    update_node(&sessions, &session_id, &node_id, |node| {
+        node.image_path = img_path_str;
+        node.thumbnail_path = thumb_path_str;
+        node.note = prompt.clone();
+        node.status = "done".to_string();
+        node.progress_step = 1;
+        node.layers = layers;
+    });
+    save_session_from_map(&sessions, &session_id);
+}
+
 /// Helper to update a node in the sessions map.
 pub fn update_node(
     sessions: &RwLock<HashMap<String, Session>>,

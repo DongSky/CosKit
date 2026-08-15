@@ -217,6 +217,9 @@ pub struct Settings {
     pub review_api_key: String,
     #[serde(default)]
     pub custom_data_dir: String,
+    /// User accepted the PixelFree demo-resource agreement (gates auto-download).
+    #[serde(default)]
+    pub pixelfree_agreement_accepted: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -314,6 +317,7 @@ impl Default for Settings {
             review_base_url: String::new(),
             review_api_key: String::new(),
             custom_data_dir: String::new(),
+            pixelfree_agreement_accepted: false,
         }
     }
 }

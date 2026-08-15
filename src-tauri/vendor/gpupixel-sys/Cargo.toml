@@ -1,0 +1,14 @@
+[package]
+name = "gpupixel-sys"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1.0"
+
+[dependencies]
+
+[lib]
+name = "gpupixel_sys"
+path = "src/lib.rs"
