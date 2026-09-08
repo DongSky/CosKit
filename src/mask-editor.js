@@ -182,7 +182,11 @@ class MaskEditor {
     // Classify selection coverage before accepting
     const coverage = this._classifyCoverage();
     if (coverage === 'empty') {
-      alert('请先绘制选区（画笔涂抹、拖拽矩形或点击多边形顶点）');
+      if (typeof window.showToast === 'function') {
+        window.showToast('请先绘制选区（画笔涂抹、拖拽矩形或点击多边形顶点）', 'info');
+      } else {
+        console.warn('请先绘制选区（画笔涂抹、拖拽矩形或点击多边形顶点）');
+      }
       return;
     }
     if (coverage === 'full') {
