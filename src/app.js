@@ -16,6 +16,17 @@
   let referenceImages = []; // Array of { dataUrl: string, description: string }
   let currentMaskDataUrl = null; // PNG data URL of the mask, or null
   let currentMaskParentId = null; // node id the mask was drawn against
+  let viewerScale = 1;
+  let viewerX = 0;
+  let viewerY = 0;
+  let viewerDragging = false;
+  let viewerMoved = false;
+  let viewerDragStart = null;
+  let viewerPointers = new Map();
+  let viewerPinchStart = null;
+  let viewerComparePct = 50;
+  let viewerHoldingCompare = false;
+  let viewerBeforeNodeId = null;
 
   // ── Theme ────────────────────────────────────────────────
   const THEME_KEY = "coskit-theme";
@@ -110,9 +121,24 @@
   const fileInputInline = document.getElementById("file-input-inline");
   const imageViewer = document.getElementById("image-viewer");
   const viewerImg = document.getElementById("viewer-img");
+  const viewerImgBefore = document.getElementById("viewer-img-before");
+  const viewerStage = document.getElementById("viewer-stage");
+  const viewerTransform = document.getElementById("viewer-transform");
+  const viewerCompareBtn = document.getElementById("viewer-compare");
+  const viewerCompareBar = document.getElementById("viewer-compare-bar");
+  const viewerCompareSlider = document.getElementById("viewer-compare-slider");
+  const viewerCompareLine = document.getElementById("viewer-compare-line");
+  const viewerCompareBeforeLabel = document.getElementById("viewer-compare-before-label");
   const viewerClose = document.getElementById("viewer-close");
   const viewerExport = document.getElementById("viewer-export");
   const chatArea = document.getElementById("chat-area");
+  const toastContainer = document.getElementById("toast-container");
+  const pipelineMoreBtn = document.getElementById("pipeline-more-btn");
+  const pipelineMorePanel = document.getElementById("pipeline-more-panel");
+  const apiKeyBanner = document.getElementById("api-key-banner");
+  const welcomePromptPreview = document.getElementById("welcome-prompt-preview");
+  const recentSessionsEl = document.getElementById("recent-sessions");
+  const recentSessionsList = document.getElementById("recent-sessions-list");
 
   // History & Help DOM refs
   const btnHistory = document.getElementById("btn-history");
@@ -131,6 +157,22 @@
   const settingsSave = document.getElementById("settings-save");
 
   // ── Tauri invoke bridge ─────────────────────────────────
+  // Lightweight no-op bridge so the static frontend can be previewed in a
+  // browser without crashing. Production Tauri always provides __TAURI__.
+  if (!window.__TAURI__ || !window.__TAURI__.core) {
+    window.__TAURI__ = {
+      core: {
+        invoke: async (cmd) => {
+          if (cmd === "get_settings") {
+            return { text_api_key: "", image_api_key: "", review_enabled: false };
+          }
+          if (cmd === "list_sessions") return [];
+          if (cmd === "get_image") return "";
+          return {};
+        },
+      },
+    };
+  }
   const { invoke } = window.__TAURI__.core;
 
   const _SIGNATURES = {
@@ -186,6 +228,76 @@
     return true;
   }
 
+  // ── Toasts ─────────────────────────────────────────────
+  function showToast(message, type) {
+    const kind = type === "success" || type === "error" ? type : "info";
+    if (!toastContainer) {
+      console[kind === "error" ? "error" : "log"]("[CosKit]", message);
+      return;
+    }
+    const el = document.createElement("div");
+    el.className = "toast toast-" + kind;
+    el.setAttribute("role", kind === "error" ? "alert" : "status");
+
+    const msg = document.createElement("span");
+    msg.className = "toast-msg";
+    msg.textContent = message;
+    el.appendChild(msg);
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "关闭");
+    close.textContent = "✕";
+    el.appendChild(close);
+
+    const ttl = kind === "error" ? 6500 : 3500;
+    let hideTimer = setTimeout(dismiss, ttl);
+
+    function dismiss() {
+      if (!el.parentNode) return;
+      clearTimeout(hideTimer);
+      el.classList.add("toast-leaving");
+      setTimeout(() => el.remove(), 180);
+    }
+
+    close.addEventListener("click", dismiss);
+    el.addEventListener("mouseenter", () => clearTimeout(hideTimer));
+    el.addEventListener("mouseleave", () => {
+      hideTimer = setTimeout(dismiss, kind === "error" ? 2500 : 1500);
+    });
+
+    toastContainer.appendChild(el);
+  }
+  window.showToast = showToast;
+
+  function autoGrowPrompt() {
+    if (!promptInput) return;
+    promptInput.style.height = "auto";
+    const next = Math.min(promptInput.scrollHeight, 132);
+    promptInput.style.height = Math.max(40, next) + "px";
+  }
+
+  function fillPrompt(text, opts) {
+    const options = opts || {};
+    promptInput.value = text;
+    autoGrowPrompt();
+    document.querySelectorAll(".prompt-chip").forEach((chip) => {
+      chip.classList.toggle("active", chip.dataset.prompt === text);
+    });
+    if (welcomePromptPreview) {
+      if (text && welcome.style.display !== "none") {
+        welcomePromptPreview.hidden = false;
+        welcomePromptPreview.textContent = "将发送：" + text;
+      } else {
+        welcomePromptPreview.hidden = true;
+      }
+    }
+    if (options.focus && inputBar.style.display !== "none") {
+      promptInput.focus();
+    }
+  }
+
   // ── File reading ───────────────────────────────────────
   function readFileAsBase64(file) {
     return new Promise((resolve, reject) => {
@@ -219,7 +331,7 @@
       const base64 = await readFileAsBase64(file);
       const result = await api().create_session(base64, file.name);
       if (result.error) {
-        alert("创建会话失败: " + result.error);
+        showToast("创建会话失败: " + result.error, "error");
         return;
       }
 
@@ -243,7 +355,7 @@
       console.log("[CosKit] pick_image result:", JSON.stringify(result).slice(0, 200));
       if (!result || result.cancelled) return;
       if (result.error) {
-        alert("选择图片失败: " + result.error);
+        showToast("选择图片失败: " + result.error, "error");
         return;
       }
       uploading = true;
@@ -253,7 +365,7 @@
       const sessionResult = await api().create_session(result.data_url, result.filename);
       console.log("[CosKit] create_session result:", JSON.stringify(sessionResult).slice(0, 200));
       if (sessionResult.error) {
-        alert("创建会话失败: " + sessionResult.error);
+        showToast("创建会话失败: " + sessionResult.error, "error");
         return;
       }
       currentSessionId = sessionResult.session_id;
@@ -263,7 +375,7 @@
       showChatMode();
     } catch (err) {
       console.error("[CosKit] pickAndUpload error:", err);
-      alert("上传失败: " + (err && err.toString ? err.toString() : err));
+      showToast("上传失败: " + (err && err.toString ? err.toString() : err), "error");
     } finally {
       uploading = false;
       welcome.style.pointerEvents = "";
@@ -626,12 +738,12 @@
       ? currentMaskDataUrl.replace(/^data:image\/png;base64,/, '')
       : null;
 
-    promptInput.value = "";
+    fillPrompt("");
     btnSend.disabled = true;
 
     const result = await api().submit_edit(currentSessionId, parentId, prompt, modules, refData, maskB64);
     if (result.error) {
-      alert("提交失败: " + result.error);
+      showToast("提交失败: " + result.error, "error");
       btnSend.disabled = false;
       return;
     }
@@ -658,11 +770,11 @@
     try {
       st = await api().get_beauty_status();
     } catch (e) {
-      alert("本地美颜状态查询失败: " + e);
+      showToast("本地美颜状态查询失败: " + e, "error");
       return;
     }
     if (!st.providers || st.providers.length === 0) {
-      alert("当前构建未启用本地美颜。请以 --features \"gpupixel,pixelfree\" 重新构建。");
+      showToast("当前构建未启用本地美颜。请以 --features \"gpupixel,pixelfree\" 重新构建。", "info");
       return;
     }
 
@@ -732,7 +844,7 @@
       closeBeautyPanel();
       await refreshSession();
     } catch (e) {
-      alert("美颜提交失败: " + e);
+      showToast("美颜提交失败: " + e, "error");
     } finally {
       applyBtn.disabled = false;
     }
@@ -922,22 +1034,118 @@
   }
 
   // ── Image viewer ───────────────────────────────────────
+  function resetViewerTransform() {
+    viewerScale = 1;
+    viewerX = 0;
+    viewerY = 0;
+    viewerDragging = false;
+    viewerMoved = false;
+    viewerDragStart = null;
+    viewerPointers.clear();
+    viewerPinchStart = null;
+    applyViewerTransform();
+    if (viewerStage) viewerStage.classList.remove("is-panning");
+  }
+
+  function applyViewerTransform() {
+    if (!viewerTransform) return;
+    viewerTransform.style.transform =
+      `translate(${viewerX}px, ${viewerY}px) scale(${viewerScale})`;
+  }
+
+  function clampViewerScale(scale) {
+    return Math.min(8, Math.max(1, scale));
+  }
+
+  function applyCompareClip(pct, opts) {
+    viewerComparePct = pct;
+    if (!viewerImg) return;
+    if (viewerImgBefore && !viewerImgBefore.hidden) {
+      viewerImg.style.clipPath = `inset(0 0 0 ${pct}%)`;
+      if (viewerCompareLine) {
+        viewerCompareLine.hidden = false;
+        viewerCompareLine.style.left = pct + "%";
+      }
+    } else {
+      viewerImg.style.clipPath = "";
+      if (viewerCompareLine) viewerCompareLine.hidden = true;
+    }
+    if ((!opts || !opts.skipSlider) && viewerCompareSlider && String(viewerCompareSlider.value) !== String(pct)) {
+      viewerCompareSlider.value = String(pct);
+    }
+  }
+
+  function setCompareUiVisible(visible, label) {
+    const show = !!visible;
+    if (viewerCompareBtn) viewerCompareBtn.hidden = !show;
+    if (viewerCompareBar) viewerCompareBar.hidden = !show;
+    if (viewerImgBefore) viewerImgBefore.hidden = !show;
+    if (viewerCompareBeforeLabel && label) {
+      viewerCompareBeforeLabel.textContent = label;
+    }
+    if (!show) {
+      if (viewerImg) viewerImg.style.clipPath = "";
+      if (viewerCompareLine) viewerCompareLine.hidden = true;
+    }
+  }
+
+  function resolveCompareNodeId(nodeId) {
+    if (!sessionData || !sessionData.nodes) return { id: null, label: "前" };
+    const node = sessionData.nodes[nodeId];
+    if (node && node.parent_id && sessionData.nodes[node.parent_id]) {
+      return { id: node.parent_id, label: "上一节点" };
+    }
+    if (sessionData.root_id && sessionData.root_id !== nodeId) {
+      return { id: sessionData.root_id, label: "原图" };
+    }
+    return { id: null, label: "前" };
+  }
+
   async function showImageViewer(sessionId, nodeId) {
     viewerSessionId = sessionId;
     viewerNodeId = nodeId;
+    viewerHoldingCompare = false;
+    viewerComparePct = 50;
+    viewerBeforeNodeId = null;
+    resetViewerTransform();
+    setCompareUiVisible(false);
     imageViewer.style.display = "flex";
     viewerImg.src = "";
+    if (viewerImgBefore) viewerImgBefore.src = "";
     const dataUrl = await api().get_image(sessionId, nodeId, false);
     if (dataUrl) {
       viewerImg.src = dataUrl;
+    }
+
+    const compare = resolveCompareNodeId(nodeId);
+    if (compare.id) {
+      try {
+        const beforeUrl = await api().get_image(sessionId, compare.id, false);
+        if (beforeUrl) {
+          viewerBeforeNodeId = compare.id;
+          viewerImgBefore.src = beforeUrl;
+          setCompareUiVisible(true, compare.label);
+          applyCompareClip(50);
+        }
+      } catch (e) {
+        setCompareUiVisible(false);
+      }
     }
   }
 
   function hideImageViewer() {
     imageViewer.style.display = "none";
     viewerImg.src = "";
+    if (viewerImgBefore) {
+      viewerImgBefore.src = "";
+      viewerImgBefore.hidden = true;
+    }
+    if (viewerImg) viewerImg.style.clipPath = "";
     viewerSessionId = null;
     viewerNodeId = null;
+    viewerBeforeNodeId = null;
+    resetViewerTransform();
+    setCompareUiVisible(false);
     layersPanel.style.display = "none";
     layersList.innerHTML = "";
   }
@@ -945,7 +1153,8 @@
   async function exportCurrentImage() {
     if (!viewerSessionId || !viewerNodeId) return;
     const result = await api().export_image(viewerSessionId, viewerNodeId);
-    if (result.error) alert("导出失败: " + result.error);
+    if (result.error) showToast("导出失败: " + result.error, "error");
+    else if (result.ok) showToast("已导出", "success");
   }
 
   // ── Layers panel ───────────────────────────────────────
@@ -998,7 +1207,7 @@
     try {
       await fn();
     } catch (e) {
-      alert("图层操作失败: " + e);
+      showToast("图层操作失败: " + e, "error");
     }
     await refreshLayersPanel();
     await refreshViewerAndThumb();
@@ -1144,6 +1353,9 @@
     messagesEl.style.display = "flex";
     inputBar.style.display = "flex";
     document.getElementById("pipeline-modules").style.display = "flex";
+    if (welcomePromptPreview) welcomePromptPreview.hidden = true;
+    closePipelineMore();
+    autoGrowPrompt();
   }
 
   function showWelcomeMode() {
@@ -1157,8 +1369,105 @@
     referenceImages = [];
     renderReferenceImages();
     clearMask();
+    closePipelineMore();
     // Stop all polling
     Object.keys(pollingTimers).forEach(stopPolling);
+    refreshWelcomeExtras();
+    if (promptInput.value.trim()) {
+      fillPrompt(promptInput.value);
+    }
+  }
+
+  function apiKeysAppearUnset(settings) {
+    if (!settings) return false;
+    const text = (settings.text_api_key || "").trim();
+    const image = (settings.image_api_key || "").trim();
+    return !text && !image;
+  }
+
+  function refreshApiKeyBanner(settings) {
+    if (!apiKeyBanner) return;
+    apiKeyBanner.hidden = !apiKeysAppearUnset(settings);
+  }
+
+  async function refreshWelcomeExtras() {
+    try {
+      const settings = await api().get_settings();
+      refreshApiKeyBanner(settings);
+    } catch (e) {
+      // settings may not be ready
+    }
+    await renderRecentSessions();
+  }
+
+  async function renderRecentSessions() {
+    if (!recentSessionsEl || !recentSessionsList) return;
+    recentSessionsList.innerHTML = "";
+    let sessions = [];
+    try {
+      sessions = await api().list_sessions();
+    } catch (e) {
+      recentSessionsEl.hidden = true;
+      return;
+    }
+    if (!sessions || sessions.length === 0) {
+      recentSessionsEl.hidden = true;
+      return;
+    }
+    recentSessionsEl.hidden = false;
+    sessions.slice(0, 4).forEach((s) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "recent-session-card";
+      card.title = s.note || s.session_id;
+
+      const img = document.createElement("img");
+      img.alt = "";
+      card.appendChild(img);
+      (async () => {
+        try {
+          const dataUrl = await api().get_image(s.session_id, s.root_id, true);
+          if (dataUrl) img.src = dataUrl;
+        } catch (e) {
+          // ignore missing thumbs
+        }
+      })();
+
+      const label = document.createElement("span");
+      label.textContent = s.note || "未命名会话";
+      card.appendChild(label);
+
+      card.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        currentSessionId = s.session_id;
+        editFromNodeId = null;
+        clearMask();
+        await refreshSession();
+        showChatMode();
+      });
+      recentSessionsList.appendChild(card);
+    });
+  }
+
+  function openPipelineMore() {
+    if (!pipelineMorePanel || !pipelineMoreBtn) return;
+    pipelineMorePanel.hidden = false;
+    pipelineMorePanel.classList.add("open");
+    pipelineMoreBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function closePipelineMore() {
+    if (!pipelineMorePanel || !pipelineMoreBtn) return;
+    pipelineMorePanel.hidden = true;
+    pipelineMorePanel.classList.remove("open");
+    pipelineMoreBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function togglePipelineMore() {
+    if (!pipelineMorePanel) return;
+    if (pipelineMorePanel.classList.contains("open")) closePipelineMore();
+    else openPipelineMore();
   }
 
   // ── Settings ───────────────────────────────────────────
@@ -1266,9 +1575,11 @@
     try {
       const result = await api().save_settings(settings);
       settingsSave.textContent = "已保存";
+      showToast("设置已保存", "success");
+      refreshApiKeyBanner(settings);
       setTimeout(() => closeSettings(), 400);
     } catch (err) {
-      alert("保存失败: " + err);
+      showToast("保存失败: " + err, "error");
     } finally {
       settingsSave.disabled = false;
       settingsSave.textContent = "保存";
@@ -1390,7 +1701,7 @@
         document.getElementById("btn-reset-data-dir").disabled = false;
       }
     } catch (err) {
-      alert("更换存储目录失败: " + err);
+      showToast("更换存储目录失败: " + err, "error");
     } finally {
       btn.disabled = false;
       btn.textContent = "更换目录";
@@ -1410,7 +1721,7 @@
         btn.disabled = true;
       }
     } catch (err) {
-      alert("恢复默认路径失败: " + err);
+      showToast("恢复默认路径失败: " + err, "error");
     } finally {
       btn.textContent = "恢复默认路径";
     }
@@ -1557,14 +1868,14 @@
           const result = await api().pick_image();
           if (!result || result.cancelled) return;
           if (result.error) {
-            alert("选择参考图失败: " + result.error);
+            showToast("选择参考图失败: " + result.error, "error");
             return;
           }
           referenceImages.push({ dataUrl: result.data_url, description: "" });
           renderReferenceImages();
         } catch (err) {
           console.error("[CosKit] ref pick error:", err);
-          alert("选择参考图失败: " + (err && err.toString ? err.toString() : err));
+          showToast("选择参考图失败: " + (err && err.toString ? err.toString() : err), "error");
         }
       });
     }
@@ -1637,6 +1948,7 @@
       submitEdit();
     }
   });
+  promptInput.addEventListener("input", autoGrowPrompt);
 
   btnNewSession.addEventListener("click", () => {
     showWelcomeMode();
@@ -1645,7 +1957,10 @@
   });
 
   // Image viewer events
-  imageViewer.addEventListener("click", hideImageViewer);
+  imageViewer.addEventListener("click", (e) => {
+    if (viewerMoved) return;
+    if (e.target === imageViewer) hideImageViewer();
+  });
   viewerClose.addEventListener("click", (e) => {
     e.stopPropagation();
     hideImageViewer();
@@ -1664,6 +1979,127 @@
   document.querySelector(".viewer-actions").addEventListener("click", (e) => {
     e.stopPropagation();
   });
+  if (viewerCompareBar) {
+    viewerCompareBar.addEventListener("click", (e) => e.stopPropagation());
+    viewerCompareBar.addEventListener("pointerdown", (e) => e.stopPropagation());
+  }
+  if (viewerCompareSlider) {
+    viewerCompareSlider.addEventListener("input", () => {
+      applyCompareClip(Number(viewerCompareSlider.value));
+    });
+  }
+  if (viewerCompareBtn) {
+    const holdCompare = (on) => {
+      viewerHoldingCompare = on;
+      if (on) applyCompareClip(100, { skipSlider: true });
+      else applyCompareClip(Number(viewerCompareSlider ? viewerCompareSlider.value : 50));
+    };
+    viewerCompareBtn.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      viewerCompareBtn.setPointerCapture(e.pointerId);
+      holdCompare(true);
+    });
+    viewerCompareBtn.addEventListener("pointerup", (e) => {
+      e.stopPropagation();
+      holdCompare(false);
+    });
+    viewerCompareBtn.addEventListener("pointercancel", () => holdCompare(false));
+    viewerCompareBtn.addEventListener("lostpointercapture", () => holdCompare(false));
+  }
+
+  function viewerZoomAt(clientX, clientY, nextScale) {
+    const rect = viewerStage.getBoundingClientRect();
+    const cx = clientX - rect.left - rect.width / 2;
+    const cy = clientY - rect.top - rect.height / 2;
+    const prev = viewerScale;
+    const scale = clampViewerScale(nextScale);
+    if (scale === prev) return;
+    const factor = scale / prev;
+    viewerX = cx - (cx - viewerX) * factor;
+    viewerY = cy - (cy - viewerY) * factor;
+    viewerScale = scale;
+    if (viewerScale <= 1.001) {
+      viewerScale = 1;
+      viewerX = 0;
+      viewerY = 0;
+    }
+    applyViewerTransform();
+  }
+
+  if (viewerStage) {
+    viewerStage.addEventListener("click", (e) => e.stopPropagation());
+    viewerStage.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+      viewerZoomAt(e.clientX, e.clientY, viewerScale * factor);
+    }, { passive: false });
+
+    viewerStage.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      resetViewerTransform();
+    });
+
+    viewerStage.addEventListener("pointerdown", (e) => {
+      if (e.target.closest && e.target.closest(".viewer-compare-bar")) return;
+      viewerStage.setPointerCapture(e.pointerId);
+      viewerPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      viewerMoved = false;
+      if (viewerPointers.size === 1) {
+        viewerDragging = true;
+        viewerDragStart = { x: e.clientX - viewerX, y: e.clientY - viewerY };
+        viewerStage.classList.add("is-panning");
+      } else if (viewerPointers.size === 2) {
+        const pts = Array.from(viewerPointers.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        viewerPinchStart = {
+          dist: Math.hypot(dx, dy),
+          scale: viewerScale,
+        };
+        viewerDragging = false;
+      }
+    });
+
+    viewerStage.addEventListener("pointermove", (e) => {
+      if (!viewerPointers.has(e.pointerId)) return;
+      viewerPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (viewerPointers.size === 2 && viewerPinchStart) {
+        const pts = Array.from(viewerPointers.values());
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        const dist = Math.hypot(dx, dy);
+        if (viewerPinchStart.dist > 0) {
+          const midX = (pts[0].x + pts[1].x) / 2;
+          const midY = (pts[0].y + pts[1].y) / 2;
+          viewerZoomAt(midX, midY, viewerPinchStart.scale * (dist / viewerPinchStart.dist));
+          viewerMoved = true;
+        }
+        return;
+      }
+      if (viewerDragging && viewerDragStart) {
+        const nx = e.clientX - viewerDragStart.x;
+        const ny = e.clientY - viewerDragStart.y;
+        if (Math.abs(nx - viewerX) > 3 || Math.abs(ny - viewerY) > 3) viewerMoved = true;
+        viewerX = nx;
+        viewerY = ny;
+        applyViewerTransform();
+      }
+    });
+
+    const endPointer = (e) => {
+      viewerPointers.delete(e.pointerId);
+      if (viewerPointers.size < 2) viewerPinchStart = null;
+      if (viewerPointers.size === 0) {
+        viewerDragging = false;
+        viewerDragStart = null;
+        viewerStage.classList.remove("is-panning");
+      }
+    };
+    viewerStage.addEventListener("pointerup", endPointer);
+    viewerStage.addEventListener("pointercancel", endPointer);
+  }
 
   // History & Help events
   btnHistory.addEventListener("click", openHistoryModal);
@@ -1787,6 +2223,16 @@
     });
   }
 
+  if (pipelineMoreBtn) {
+    pipelineMoreBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      togglePipelineMore();
+    });
+  }
+  if (pipelineMorePanel) {
+    pipelineMorePanel.addEventListener("click", (e) => e.stopPropagation());
+  }
+
   document.querySelectorAll(".module-toggle").forEach((btn) => {
     btn.addEventListener("click", () => {
       if (btn.dataset.module === "agent_mode") {
@@ -1798,6 +2244,7 @@
           if (!anyLegacyActive) {
             document.querySelector('.module-toggle[data-module="retouch"]').classList.add("active");
           }
+          openPipelineMore();
         }
         return;
       }
@@ -1825,7 +2272,9 @@
   // ESC key closes modals
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      if (historyModal.style.display !== "none") {
+      if (pipelineMorePanel && pipelineMorePanel.classList.contains("open")) {
+        closePipelineMore();
+      } else if (historyModal.style.display !== "none") {
         closeHistoryModal();
       } else if (helpModal.style.display !== "none") {
         closeHelpModal();
@@ -1839,20 +2288,73 @@
     }
   });
 
-  // Drag-and-drop on upload zone
+  document.addEventListener("click", (e) => {
+    if (!pipelineMorePanel || !pipelineMorePanel.classList.contains("open")) return;
+    if (pipelineMoreBtn && pipelineMoreBtn.contains(e.target)) return;
+    if (pipelineMorePanel.contains(e.target)) return;
+    closePipelineMore();
+  });
+
+  document.querySelectorAll(".prompt-chip").forEach((chip) => {
+    chip.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      fillPrompt(chip.dataset.prompt || chip.textContent, { focus: true });
+      const hasSession = !!currentSessionId;
+      if (!hasSession) {
+        showToast("已填入指令，请先上传图片", "info");
+        const zone = document.getElementById("upload-zone");
+        if (zone) {
+          zone.classList.add("is-dragover");
+          setTimeout(() => zone.classList.remove("is-dragover"), 900);
+        }
+      }
+    });
+  });
+
+  const btnSetupApi = document.getElementById("btn-setup-api");
+  if (btnSetupApi) {
+    btnSetupApi.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openSettings();
+    });
+  }
+
+  // Drag-and-drop on upload zone / welcome
   const uploadZone = document.getElementById("upload-zone");
-  uploadZone.addEventListener("dragover", (e) => {
+  function setWelcomeDrag(on) {
+    uploadZone.classList.toggle("is-dragover", on);
+    welcome.classList.toggle("is-dragover", on);
+  }
+  function isImageFile(file) {
+    if (!file) return false;
+    if (file.type && file.type.startsWith("image/")) return true;
+    return /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?|avif)$/i.test(file.name || "");
+  }
+  function onWelcomeDragOver(e) {
+    if (welcome.style.display === "none") return;
+    if (![...e.dataTransfer.types].includes("Files")) return;
     e.preventDefault();
-    uploadZone.style.borderColor = "var(--accent)";
-  });
-  uploadZone.addEventListener("dragleave", () => {
-    uploadZone.style.borderColor = "";
-  });
-  uploadZone.addEventListener("drop", (e) => {
+    setWelcomeDrag(true);
+  }
+  function onWelcomeDragLeave(e) {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setWelcomeDrag(false);
+  }
+  function onWelcomeDrop(e) {
+    if (welcome.style.display === "none") return;
     e.preventDefault();
-    uploadZone.style.borderColor = "";
-    if (e.dataTransfer.files[0]) handleUpload(e.dataTransfer.files[0]);
-  });
+    setWelcomeDrag(false);
+    const file = e.dataTransfer.files[0];
+    if (isImageFile(file)) handleUpload(file);
+  }
+  uploadZone.addEventListener("dragover", onWelcomeDragOver);
+  uploadZone.addEventListener("dragleave", onWelcomeDragLeave);
+  uploadZone.addEventListener("drop", onWelcomeDrop);
+  welcome.addEventListener("dragover", onWelcomeDragOver);
+  welcome.addEventListener("dragleave", onWelcomeDragLeave);
+  welcome.addEventListener("drop", onWelcomeDrop);
 
   // ── Init ───────────────────────────────────────────────
   async function init() {
@@ -1876,7 +2378,10 @@
       currentSessionId = sessions[0].session_id;
       await refreshSession();
       showChatMode();
+    } else {
+      await refreshWelcomeExtras();
     }
+    autoGrowPrompt();
   }
 
   init();
