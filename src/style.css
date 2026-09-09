@@ -2654,6 +2654,12 @@ details.wf-review[open] > summary.wf-review-summary::before {
   padding: 8px;
 }
 
+@media (min-width: 768px) {
+  .session-sidebar .sidebar-nav {
+    display: none;
+  }
+}
+
 .drawer-item {
   background: none;
   border: none;
