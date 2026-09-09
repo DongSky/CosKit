@@ -52,20 +52,23 @@
   </div>
 </header>
 
-<!-- Mobile drawer -->
+<!-- Dialogue sidebar: current session turns (desktop column / mobile drawer) -->
 <div id="drawer-backdrop" class="drawer-backdrop"></div>
-<aside id="drawer" class="drawer">
-  <div class="drawer-header">
-    <span class="drawer-title">CosKit</span>
-    <button id="drawer-close" class="header-icon-btn" title="关闭">
+<div id="app-shell">
+<aside id="session-sidebar" class="session-sidebar">
+  <div class="sidebar-header">
+    <span class="sidebar-title">对话记录</span>
+    <button id="drawer-close" class="header-icon-btn sidebar-close" title="关闭">
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 5l10 10M15 5L5 15"/>
       </svg>
     </button>
   </div>
-  <nav class="drawer-nav">
+  <div id="turn-list" class="turn-list" role="list"></div>
+  <div id="turn-list-empty" class="turn-list-empty">上传图片后，本会话的对话轮次会显示在这里</div>
+  <nav class="drawer-nav sidebar-nav">
     <button class="drawer-item" data-action="new">+ 新建会话</button>
-    <button class="drawer-item" data-action="history">历史会话</button>
+    <button class="drawer-item" data-action="history">全部会话</button>
     <button class="drawer-item" data-action="settings">设置</button>
     <button class="drawer-item" data-action="theme">切换主题</button>
     <button class="drawer-item" data-action="help">帮助</button>
@@ -73,8 +76,9 @@
   </nav>
 </aside>
 
-<!-- Chat area -->
-<main id="chat-area">
+<!-- Center workspace: canvas + filmstrip + command bar -->
+<div id="workspace">
+<main id="canvas-stage">
   <div id="welcome" class="welcome">
     <div id="api-key-banner" class="api-key-banner" hidden>
       <span>尚未配置 API Key，修图前请先完成设置</span>
@@ -100,11 +104,28 @@
       <div id="recent-sessions-list" class="recent-sessions-list"></div>
     </div>
   </div>
-  <div id="messages" class="messages" style="display:none;"></div>
+
+  <div id="canvas-view" class="canvas-view" hidden>
+    <div id="canvas-image-wrap" class="canvas-image-wrap">
+      <img id="canvas-image" class="canvas-image" alt="当前图像" hidden>
+      <div id="canvas-processing" class="canvas-processing" hidden>
+        <div class="spinner"></div>
+        <span>准备中...</span>
+      </div>
+      <div id="canvas-empty" class="canvas-empty" hidden>此节点暂无图像</div>
+    </div>
+  </div>
+
+  <!-- Hidden host: keep message-card rendering for polling / workflow / branch continue -->
+  <div id="legacy-messages-host" class="legacy-messages-host" hidden>
+    <div id="chat-area">
+      <div id="messages" class="messages"></div>
+    </div>
+  </div>
 </main>
 
 <!-- Input bar -->
-<footer id="input-bar" style="display:none;">
+<footer id="input-bar">
   <div class="pipeline-modules" id="pipeline-modules">
     <button class="module-toggle agent-toggle active" data-module="agent_mode">智能规划</button>
     <button type="button" id="pipeline-more-btn" class="pipeline-more-btn" aria-expanded="false" aria-controls="pipeline-more-panel" title="更多选项">⋯ 更多</button>
@@ -156,6 +177,8 @@
     <button id="btn-send">发送</button>
   </div>
 </footer>
+</div><!-- /workspace -->
+</div><!-- /app-shell -->
 
 <!-- Image viewer overlay -->
 <div id="image-viewer" class="image-viewer" style="display:none;">

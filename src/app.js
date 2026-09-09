@@ -8,6 +8,7 @@
   // ── State ──────────────────────────────────────────────
   let currentSessionId = null;
   let sessionData = null; // full session from get_session()
+  let selectedCanvasNodeId = null; // node shown on the center canvas
   let editFromNodeId = null; // non-null when user clicks a historical node
   let pollingTimers = {}; // node_id -> intervalId
   let cachedDefaults = null; // cached default settings for prompt reset
@@ -32,6 +33,11 @@
   const THEME_KEY = "coskit-theme";
   const darkMQ = window.matchMedia("(prefers-color-scheme: dark)");
   let themeManual = localStorage.getItem(THEME_KEY); // null = auto
+  const themeParam = new URLSearchParams(location.search).get("theme");
+  if (themeParam === "dark" || themeParam === "light") {
+    themeManual = themeParam;
+    localStorage.setItem(THEME_KEY, themeParam);
+  }
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme;
@@ -71,11 +77,13 @@
 
   // ── Drawer ───────────────────────────────────────────────
   function openDrawer() {
-    document.getElementById("drawer").classList.add("drawer-open");
+    const sidebar = document.getElementById("session-sidebar");
+    if (sidebar) sidebar.classList.add("drawer-open");
     document.getElementById("drawer-backdrop").classList.add("drawer-backdrop-show");
   }
   function closeDrawer() {
-    document.getElementById("drawer").classList.remove("drawer-open");
+    const sidebar = document.getElementById("session-sidebar");
+    if (sidebar) sidebar.classList.remove("drawer-open");
     document.getElementById("drawer-backdrop").classList.remove("drawer-backdrop-show");
   }
   function handleDrawerAction(action) {
@@ -113,6 +121,12 @@
   const welcome = document.getElementById("welcome");
   const messagesEl = document.getElementById("messages");
   const inputBar = document.getElementById("input-bar");
+  const canvasView = document.getElementById("canvas-view");
+  const canvasImage = document.getElementById("canvas-image");
+  const canvasProcessing = document.getElementById("canvas-processing");
+  const canvasEmpty = document.getElementById("canvas-empty");
+  const turnListEl = document.getElementById("turn-list");
+  const turnListEmpty = document.getElementById("turn-list-empty");
   const promptInput = document.getElementById("prompt-input");
   const btnSend = document.getElementById("btn-send");
   const btnNewSession = document.getElementById("btn-new-session");
@@ -159,15 +173,142 @@
   // ── Tauri invoke bridge ─────────────────────────────────
   // Lightweight no-op bridge so the static frontend can be previewed in a
   // browser without crashing. Production Tauri always provides __TAURI__.
+  // `?preview=session` injects stub sessions + sample images for layout shots.
   if (!window.__TAURI__ || !window.__TAURI__.core) {
+    const previewMode = new URLSearchParams(location.search).get("preview");
+    function stubPortrait(hue, title, accent) {
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="900" viewBox="0 0 720 900">` +
+        `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">` +
+        `<stop offset="0%" stop-color="hsl(${hue},42%,82%)"/>` +
+        `<stop offset="100%" stop-color="hsl(${hue},32%,38%)"/>` +
+        `</linearGradient></defs>` +
+        `<rect width="720" height="900" fill="url(#g)"/>` +
+        `<ellipse cx="360" cy="320" rx="118" ry="148" fill="hsl(${hue},28%,90%)"/>` +
+        `<ellipse cx="360" cy="300" rx="70" ry="78" fill="hsl(${hue},22%,76%)"/>` +
+        `<rect x="232" y="490" width="256" height="300" rx="90" fill="${accent || `hsl(${hue},36%,62%)`}"/>` +
+        `<text x="360" y="850" text-anchor="middle" fill="#fff" font-size="26" font-family="system-ui,sans-serif">${title}</text>` +
+        `</svg>`;
+      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }
+    const stubImages = {
+      "sess-portrait/root-a": stubPortrait(210, "原图", "#7dd3fc"),
+      "sess-portrait/node-b": stubPortrait(205, "美白磨皮", "#38bdf8"),
+      "sess-portrait/node-c": stubPortrait(195, "柔和打光", "#0ea5e9"),
+      "sess-cosplay/root-c": stubPortrait(265, "Cosplay", "#c4b5fd"),
+    };
+    const stubSessions = previewMode === "session" ? [
+      {
+        session_id: "sess-portrait",
+        root_id: "root-a",
+        created_at: Date.now() / 1000 - 3600,
+        node_count: 3,
+        note: "人像精修 · 美白磨皮",
+      },
+      {
+        session_id: "sess-cosplay",
+        root_id: "root-c",
+        created_at: Date.now() / 1000 - 86400,
+        node_count: 1,
+        note: "Cosplay 氛围图",
+      },
+    ] : [];
+    const stubFull = {
+      "sess-portrait": {
+        session_id: "sess-portrait",
+        root_id: "root-a",
+        original_size: [720, 900],
+        active_path: ["root-a", "node-b", "node-c"],
+        nodes: {
+          "root-a": {
+            id: "root-a", parent_id: null, children: ["node-b"], prompt: "",
+            note: "已收到原图，这是本次修图的起点。肤色略暗、面部有轻微油光，适合先做自然美白磨皮，再按需补光。",
+            status: "done", mask_image_path: "", metadata: {},
+          },
+          "node-b": {
+            id: "node-b", parent_id: "root-a", children: ["node-c"],
+            prompt: "美白磨皮，保持自然肤质，不要过度磨平五官",
+            note: "已按你的要求完成美白和轻度磨皮：提亮肤色、弱化瑕疵，同时保留毛孔与五官轮廓。如果还想更亮一点，可以继续补柔和打光。",
+            status: "done", mask_image_path: "",
+            metadata: {
+              workflow_plan: {
+                reasoning: "先处理肤质再考虑光线，避免一次改太多导致脸部发假。分三步：美白、磨皮、质感回加。",
+                nodes: [
+                  { node_id: "s1", skill_id: "retouch", skill_prompt: "轻度美白，提亮肤色，避免过曝" },
+                  { node_id: "s2", skill_id: "retouch", skill_prompt: "局部磨皮，弱化瑕疵，保留毛孔" },
+                  { node_id: "s3", skill_id: "retouch", skill_prompt: "回加皮肤质感，避免五官被磨平" },
+                ],
+              },
+              workflow_status: {
+                s1: { status: "done", skill_name: "美白", skill_prompt: "轻度美白，提亮肤色，避免过曝" },
+                s2: { status: "done", skill_name: "磨皮", skill_prompt: "局部磨皮，弱化瑕疵，保留毛孔" },
+                s3: { status: "done", skill_name: "质感", skill_prompt: "回加皮肤质感，避免五官被磨平" },
+              },
+              review_history: [
+                {
+                  attempt: 0,
+                  review: {
+                    pass: true,
+                    overall_score: 8.2,
+                    feedback: "肤质自然，没有磨平五官，符合需求。",
+                    suggestions: ["若面部仍偏暗，可再补一层柔光"],
+                    dimensions: { aesthetic_quality: 8.0, requirement_match: 8.5, technical_quality: 8.0, consistency: 8.2 },
+                  },
+                },
+              ],
+            },
+          },
+          "node-c": {
+            id: "node-c", parent_id: "node-b", children: [],
+            prompt: "加上柔和的人像打光，提亮面部，保留原有氛围",
+            note: "已加上侧向柔光：面部更亮、阴影更软，没有压过原图氛围。若要换背景或加 Cosplay 特效，直接说即可。",
+            status: "done", mask_image_path: "",
+            metadata: {
+              workflow_plan: {
+                reasoning: "在已修肤的基础上只补光，避免再次改动皮肤。",
+                nodes: [
+                  { node_id: "s4", skill_id: "retouch", skill_prompt: "分析面部阴影，确定柔光方向" },
+                  { node_id: "s5", skill_id: "retouch", skill_prompt: "加上侧向柔光，提亮面部，保留原氛围" },
+                ],
+              },
+              workflow_status: {
+                s4: { status: "done", skill_name: "光线分析", skill_prompt: "分析面部阴影，确定柔光方向" },
+                s5: { status: "done", skill_name: "柔和打光", skill_prompt: "加上侧向柔光，提亮面部，保留原氛围" },
+              },
+            },
+          },
+        },
+      },
+      "sess-cosplay": {
+        session_id: "sess-cosplay",
+        root_id: "root-c",
+        original_size: [720, 900],
+        active_path: ["root-c"],
+        nodes: {
+          "root-c": {
+            id: "root-c", parent_id: null, children: [], prompt: "",
+            note: "原图", status: "done", mask_image_path: "", metadata: {},
+          },
+        },
+      },
+    };
     window.__TAURI__ = {
       core: {
-        invoke: async (cmd) => {
+        invoke: async (cmd, args) => {
+          const a = args || {};
           if (cmd === "get_settings") {
             return { text_api_key: "", image_api_key: "", review_enabled: false };
           }
-          if (cmd === "list_sessions") return [];
-          if (cmd === "get_image") return "";
+          if (cmd === "list_sessions") return stubSessions;
+          if (cmd === "get_session") return stubFull[a.session_id] || {};
+          if (cmd === "get_image") {
+            return stubImages[a.session_id + "/" + a.node_id] || stubImages[a.session_id + "/" + (stubFull[a.session_id] && stubFull[a.session_id].root_id)] || "";
+          }
+          if (cmd === "delete_session") {
+            const i = stubSessions.findIndex((s) => s.session_id === a.session_id);
+            if (i >= 0) stubSessions.splice(i, 1);
+            return { ok: true };
+          }
           return {};
         },
       },
@@ -286,14 +427,14 @@
       chip.classList.toggle("active", chip.dataset.prompt === text);
     });
     if (welcomePromptPreview) {
-      if (text && welcome.style.display !== "none") {
+      if (text && isWelcomeVisible()) {
         welcomePromptPreview.hidden = false;
         welcomePromptPreview.textContent = "将发送：" + text;
       } else {
         welcomePromptPreview.hidden = true;
       }
     }
-    if (options.focus && inputBar.style.display !== "none") {
+    if (options.focus) {
       promptInput.focus();
     }
   }
@@ -383,11 +524,49 @@
     }
   }
 
+  function isWelcomeVisible() {
+    return welcome && welcome.style.display !== "none" && !welcome.hidden;
+  }
+
+  function getCanvasNodeId() {
+    if (selectedCanvasNodeId && sessionData && sessionData.nodes[selectedCanvasNodeId]) {
+      return selectedCanvasNodeId;
+    }
+    if (editFromNodeId && sessionData && sessionData.nodes[editFromNodeId]) {
+      return editFromNodeId;
+    }
+    if (!sessionData) return null;
+    const path = sessionData.active_path || [];
+    return path[path.length - 1] || sessionData.root_id || null;
+  }
+
+  async function loadSession(sessionId) {
+    if (!sessionId) return;
+    currentSessionId = sessionId;
+    editFromNodeId = null;
+    selectedCanvasNodeId = null;
+    clearMask();
+    await refreshSession();
+    showChatMode();
+    closeDrawer();
+    closeHistoryModal();
+  }
+
   // ── Session refresh ────────────────────────────────────
   async function refreshSession() {
     if (!currentSessionId) return;
     sessionData = await api().get_session(currentSessionId);
+    const path = (sessionData && sessionData.active_path) || [];
+    if (!selectedCanvasNodeId || !sessionData.nodes[selectedCanvasNodeId]) {
+      selectedCanvasNodeId = path[path.length - 1] || sessionData.root_id;
+    }
+    await renderWorkspace();
+  }
+
+  async function renderWorkspace() {
     renderMessages();
+    renderTurnList();
+    await updateCanvas();
   }
 
   // ── Render messages along active_path ──────────────────
@@ -591,13 +770,301 @@
     }
   }
 
+  async function updateCanvas() {
+    if (!canvasView) return;
+    const nodeId = getCanvasNodeId();
+    const node = sessionData && nodeId ? sessionData.nodes[nodeId] : null;
+    if (!node) {
+      if (canvasImage) canvasImage.hidden = true;
+      if (canvasProcessing) canvasProcessing.hidden = true;
+      if (canvasEmpty) {
+        canvasEmpty.hidden = false;
+        canvasEmpty.textContent = "此节点暂无图像";
+      }
+      return;
+    }
+    if (canvasEmpty) canvasEmpty.hidden = true;
+    if (node.status === "processing" || node.status === "pending") {
+      if (canvasImage) canvasImage.hidden = true;
+      if (canvasProcessing) {
+        canvasProcessing.hidden = false;
+        const label = canvasProcessing.querySelector("span");
+        if (label) label.textContent = node.progress_msg || "准备中...";
+      }
+      return;
+    }
+    if (canvasProcessing) canvasProcessing.hidden = true;
+    if (node.status === "error") {
+      if (canvasImage) canvasImage.hidden = true;
+      if (canvasEmpty) {
+        canvasEmpty.hidden = false;
+        canvasEmpty.textContent = "出错: " + (node.error_msg || "未知错误");
+      }
+      return;
+    }
+    if (canvasImage) {
+      canvasImage.hidden = false;
+      canvasImage.dataset.sessionId = currentSessionId;
+      canvasImage.dataset.nodeId = node.id;
+      const dataUrl = await api().get_image(currentSessionId, node.id, false);
+      if (dataUrl) canvasImage.src = dataUrl;
+    }
+  }
+
+  function selectTurn(nodeId) {
+    if (!sessionData || !sessionData.nodes[nodeId]) return;
+    selectedCanvasNodeId = nodeId;
+    const path = sessionData.active_path || [];
+    const last = path[path.length - 1];
+    if (nodeId !== last) setEditFrom(nodeId);
+    else clearEditFrom();
+    renderTurnList();
+    const active = turnListEl && turnListEl.querySelector(".dlg-round.active");
+    if (active) active.scrollIntoView({ block: "nearest" });
+    updateCanvas();
+    closeDrawer();
+  }
+
+  function collectAssistantText(node) {
+    return (node && node.note) || "";
+  }
+
+  function workflowPayload(node) {
+    const meta = (node && node.metadata) || {};
+    if (!meta.workflow_plan && !meta.workflow_status) return null;
+    return {
+      workflow_plan: meta.workflow_plan,
+      workflow_status: meta.workflow_status || {},
+      review_history: meta.review_history || [],
+    };
+  }
+
+  function bindWorkflowStop(el) {
+    if (!el) return;
+    const stop = (e) => e.stopPropagation();
+    el.addEventListener("click", stop);
+    el.addEventListener("pointerdown", stop);
+    el.addEventListener("keydown", stop);
+  }
+
+  function attachClamp(textEl) {
+    requestAnimationFrame(() => {
+      if (!textEl || !textEl.parentNode) return;
+      if (textEl.scrollHeight <= 176) return;
+      textEl.classList.add("is-clamped");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "dlg-expand";
+      btn.textContent = "展开";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = textEl.classList.toggle("is-expanded");
+        textEl.classList.toggle("is-clamped", !open);
+        btn.textContent = open ? "收起" : "展开";
+      });
+      textEl.parentNode.insertBefore(btn, textEl.nextSibling);
+    });
+  }
+
+  function renderDialogueBubble(kind, nodeId, opts) {
+    const wrap = document.createElement("div");
+    wrap.className = "dlg-" + kind;
+    const bubble = document.createElement("div");
+    bubble.className = "dlg-bubble";
+    bubble.setAttribute("role", "button");
+    bubble.tabIndex = 0;
+    bubble.addEventListener("click", () => selectTurn(nodeId));
+    bubble.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectTurn(nodeId);
+      }
+    });
+
+    const label = document.createElement("div");
+    label.className = "dlg-label";
+    label.textContent = opts.label;
+    bubble.appendChild(label);
+
+    if (opts.text) {
+      const text = document.createElement("div");
+      text.className = "dlg-text";
+      text.textContent = opts.text;
+      bubble.appendChild(text);
+      attachClamp(text);
+    }
+
+    if (opts.status) {
+      const st = document.createElement("div");
+      st.className = "dlg-status" + (opts.statusClass ? " " + opts.statusClass : "");
+      if (opts.statusId) st.id = opts.statusId;
+      st.textContent = opts.status;
+      bubble.appendChild(st);
+    }
+
+    if (opts.badge) {
+      const badge = document.createElement("span");
+      badge.className = "mask-badge";
+      badge.textContent = opts.badge;
+      bubble.appendChild(badge);
+    }
+
+    if (opts.refs && opts.refs.length) {
+      const refs = document.createElement("div");
+      refs.className = "dlg-refs";
+      opts.refs.forEach((ref) => {
+        const img = document.createElement("img");
+        img.src = ref.data_url;
+        img.alt = ref.description || "参考图";
+        refs.appendChild(img);
+      });
+      bubble.appendChild(refs);
+    }
+
+    if (opts.workflow || opts.workflowId) {
+      const wfWrap = document.createElement("div");
+      wfWrap.className = "wf-wrap";
+      if (opts.workflowId) wfWrap.id = opts.workflowId;
+      if (opts.workflow) {
+        wfWrap.innerHTML = renderWorkflowProgress(opts.workflow);
+      }
+      bindWorkflowStop(wfWrap);
+      bubble.appendChild(wfWrap);
+    }
+
+    if (opts.showThumb) {
+      if (opts.thumbReady) {
+        const thumb = document.createElement("img");
+        thumb.className = "dlg-thumb";
+        thumb.alt = "结果图";
+        bubble.appendChild(thumb);
+        loadThumbnail(thumb, currentSessionId, nodeId);
+        thumb.addEventListener("click", (e) => {
+          e.stopPropagation();
+          showImageViewer(currentSessionId, nodeId);
+        });
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "dlg-thumb is-placeholder";
+        ph.textContent = opts.thumbPlaceholder || "处理中";
+        bubble.appendChild(ph);
+      }
+    }
+
+    if (opts.branchNav) bubble.appendChild(opts.branchNav);
+    wrap.appendChild(bubble);
+    return wrap;
+  }
+
+  function renderBranchNav(parent, node) {
+    if (!parent || !parent.children || parent.children.length <= 1) return null;
+    const childIdx = parent.children.indexOf(node.id);
+    const nav = document.createElement("div");
+    nav.className = "branch-nav";
+    const btnPrev = document.createElement("button");
+    btnPrev.type = "button";
+    btnPrev.textContent = "◀";
+    btnPrev.onclick = (e) => {
+      e.stopPropagation();
+      navigateBranch(parent.id, -1);
+    };
+    const navInfo = document.createElement("span");
+    navInfo.textContent = `${childIdx + 1}/${parent.children.length}`;
+    const btnNext = document.createElement("button");
+    btnNext.type = "button";
+    btnNext.textContent = "▶";
+    btnNext.onclick = (e) => {
+      e.stopPropagation();
+      navigateBranch(parent.id, 1);
+    };
+    nav.appendChild(btnPrev);
+    nav.appendChild(navInfo);
+    nav.appendChild(btnNext);
+    return nav;
+  }
+
+  function renderTurnList() {
+    if (!turnListEl) return;
+    const prevWf = captureWfExpanded(turnListEl);
+    turnListEl.innerHTML = "";
+    if (!sessionData) {
+      if (turnListEmpty) turnListEmpty.style.display = "";
+      return;
+    }
+    const { nodes, active_path, root_id } = sessionData;
+    const path = active_path || [];
+    if (!path.length) {
+      if (turnListEmpty) turnListEmpty.style.display = "";
+      return;
+    }
+    if (turnListEmpty) turnListEmpty.style.display = "none";
+    const canvasId = getCanvasNodeId();
+
+    path.forEach((nodeId) => {
+      const node = nodes[nodeId];
+      if (!node) return;
+      const isRoot = nodeId === root_id;
+      const parent = node.parent_id ? nodes[node.parent_id] : null;
+      const round = document.createElement("div");
+      round.className = "dlg-round" + (nodeId === canvasId ? " active" : "");
+      round.dataset.nodeId = nodeId;
+
+      if (!isRoot && node.prompt) {
+        const refs = node.metadata && node.metadata.reference_images;
+        round.appendChild(renderDialogueBubble("user", nodeId, {
+          label: "我的需求",
+          text: node.prompt,
+          badge: node.mask_image_path ? "◱ 选区" : "",
+          refs: refs || [],
+        }));
+      }
+
+      const processing = node.status === "processing" || node.status === "pending";
+      const errored = node.status === "error";
+      const reply = collectAssistantText(node);
+      const wf = workflowPayload(node);
+      let status = "";
+      let statusClass = "";
+      if (processing) {
+        status = node.progress_msg || "准备中...";
+        statusClass = "is-processing";
+      } else if (errored) {
+        status = "出错: " + (node.error_msg || "未知错误");
+        statusClass = "is-error";
+      }
+
+      round.appendChild(renderDialogueBubble("bot", nodeId, {
+        label: isRoot ? "CosKit · 原图" : "CosKit",
+        text: reply || (isRoot ? "已上传原图，可作为后续修图的起点。" : ""),
+        status: status,
+        statusClass: statusClass,
+        statusId: processing ? "turn-processing-" + node.id : "",
+        workflow: wf,
+        workflowId: (wf || processing) ? "turn-wf-" + node.id : "",
+        showThumb: true,
+        thumbReady: node.status === "done",
+        thumbPlaceholder: errored ? "无图像" : "处理中",
+        branchNav: renderBranchNav(parent, node),
+      }));
+
+      turnListEl.appendChild(round);
+    });
+    if (prevWf && prevWf.hasState) restoreWfExpanded(turnListEl, prevWf);
+    if (new URLSearchParams(location.search).get("preview") === "session") {
+      const step = turnListEl.querySelector(".wf-step");
+      if (step) step.open = true;
+    }
+  }
+
   // ── Branch navigation ─────────────────────────────────
   async function navigateBranch(parentNodeId, direction) {
     const result = await api().navigate_branch(currentSessionId, parentNodeId, direction);
     if (result.error) return;
     sessionData.active_path = result.active_path;
     clearMask(); // active leaf changed — a mask drawn on the old leaf is stale
-    renderMessages();
+    const path = sessionData.active_path || [];
+    selectedCanvasNodeId = path[path.length - 1] || selectedCanvasNodeId;
+    await renderWorkspace();
   }
 
   // ── Edit from historical node ──────────────────────────
@@ -1008,17 +1475,24 @@
 
       if (status.status === "processing") {
         const el = document.getElementById(`processing-${nodeId}`);
+        const side = document.getElementById(`turn-processing-${nodeId}`);
+        const msg =
+          status.progress_total > 0
+            ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
+            : status.progress_msg || "处理中...";
         if (el) {
-          if (status.workflow_status) {
+          if (status.workflow_status || status.workflow_plan) {
             renderWorkflowInto(el, status);
           } else {
-            const msg =
-              status.progress_total > 0
-                ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
-                : status.progress_msg || "处理中...";
             el.innerHTML = `<div class="spinner"></div><span>${escapeHtml(msg)}</span>`;
           }
         }
+        const sideWf = document.getElementById(`turn-wf-${nodeId}`);
+        if (sideWf && (status.workflow_status || status.workflow_plan)) {
+          renderWorkflowInto(sideWf, status);
+          bindWorkflowStop(sideWf);
+        }
+        if (side) side.textContent = msg;
       } else if (status.status === "done" || status.status === "error") {
         stopPolling(nodeId);
         await refreshSession();
@@ -1222,6 +1696,9 @@
       const t = await api().get_image(viewerSessionId, viewerNodeId, true);
       if (t) thumbEl.src = t;
     }
+    if (selectedCanvasNodeId === viewerNodeId || (canvasImage && canvasImage.dataset.nodeId === viewerNodeId)) {
+      await updateCanvas();
+    }
   }
 
   function buildLayerRow(layer, index, total) {
@@ -1349,7 +1826,12 @@
 
   // ── UI mode switching ──────────────────────────────────
   function showChatMode() {
+    document.body.dataset.workspace = "session";
     welcome.style.display = "none";
+    if (canvasView) {
+      canvasView.hidden = false;
+      canvasView.style.display = "flex";
+    }
     messagesEl.style.display = "flex";
     inputBar.style.display = "flex";
     document.getElementById("pipeline-modules").style.display = "flex";
@@ -1359,14 +1841,21 @@
   }
 
   function showWelcomeMode() {
+    document.body.dataset.workspace = "welcome";
     welcome.style.display = "flex";
+    if (canvasView) {
+      canvasView.hidden = true;
+      canvasView.style.display = "none";
+    }
     messagesEl.style.display = "none";
-    inputBar.style.display = "none";
-    document.getElementById("pipeline-modules").style.display = "none";
+    inputBar.style.display = "flex";
+    document.getElementById("pipeline-modules").style.display = "flex";
     currentSessionId = null;
     sessionData = null;
+    selectedCanvasNodeId = null;
     editFromNodeId = null;
     referenceImages = [];
+    renderTurnList();
     renderReferenceImages();
     clearMask();
     closePipelineMore();
@@ -1440,11 +1929,7 @@
       card.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        currentSessionId = s.session_id;
-        editFromNodeId = null;
-        clearMask();
-        await refreshSession();
-        showChatMode();
+        await loadSession(s.session_id);
       });
       recentSessionsList.appendChild(card);
     });
@@ -1793,12 +2278,7 @@
 
       // Click to load session
       item.onclick = async () => {
-        currentSessionId = s.session_id;
-        editFromNodeId = null;
-        clearMask();
-        await refreshSession();
-        showChatMode();
-        closeHistoryModal();
+        await loadSession(s.session_id);
       };
 
       historyList.appendChild(item);
@@ -2108,6 +2588,14 @@
   document.getElementById("btn-hamburger").addEventListener("click", openDrawer);
   document.getElementById("drawer-close").addEventListener("click", closeDrawer);
   document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
+  if (canvasImage) {
+    canvasImage.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sid = canvasImage.dataset.sessionId;
+      const nid = canvasImage.dataset.nodeId;
+      if (sid && nid) showImageViewer(sid, nid);
+    });
+  }
   document.querySelectorAll(".drawer-item").forEach((btn) => {
     btn.addEventListener("click", () => handleDrawerAction(btn.dataset.action));
   });
@@ -2272,8 +2760,11 @@
   // ESC key closes modals
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      const sidebar = document.getElementById("session-sidebar");
       if (pipelineMorePanel && pipelineMorePanel.classList.contains("open")) {
         closePipelineMore();
+      } else if (sidebar && sidebar.classList.contains("drawer-open")) {
+        closeDrawer();
       } else if (historyModal.style.display !== "none") {
         closeHistoryModal();
       } else if (helpModal.style.display !== "none") {
@@ -2333,7 +2824,7 @@
     return /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?|avif)$/i.test(file.name || "");
   }
   function onWelcomeDragOver(e) {
-    if (welcome.style.display === "none") return;
+    if (!isWelcomeVisible()) return;
     if (![...e.dataTransfer.types].includes("Files")) return;
     e.preventDefault();
     setWelcomeDrag(true);
@@ -2343,7 +2834,7 @@
     setWelcomeDrag(false);
   }
   function onWelcomeDrop(e) {
-    if (welcome.style.display === "none") return;
+    if (!isWelcomeVisible()) return;
     e.preventDefault();
     setWelcomeDrag(false);
     const file = e.dataTransfer.files[0];
