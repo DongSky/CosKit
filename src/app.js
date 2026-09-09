@@ -222,17 +222,39 @@
         nodes: {
           "root-a": {
             id: "root-a", parent_id: null, children: ["node-b"], prompt: "",
-            note: "原图", status: "done", mask_image_path: "", metadata: {},
+            note: "已收到原图，这是本次修图的起点。肤色略暗、面部有轻微油光，适合先做自然美白磨皮，再按需补光。",
+            status: "done", mask_image_path: "", metadata: {},
           },
           "node-b": {
             id: "node-b", parent_id: "root-a", children: ["node-c"],
-            prompt: "美白磨皮，保持自然肤质",
-            note: "已完成美白磨皮", status: "done", mask_image_path: "", metadata: {},
+            prompt: "美白磨皮，保持自然肤质，不要过度磨平五官",
+            note: "已按你的要求完成美白和轻度磨皮：提亮肤色、弱化瑕疵，同时保留毛孔与五官轮廓。如果还想更亮一点，可以继续补柔和打光。",
+            status: "done", mask_image_path: "",
+            metadata: {
+              workflow_plan: {
+                reasoning: "先处理肤质再考虑光线，避免一次改太多导致脸部发假。",
+                nodes: [
+                  { node_id: "s1", skill_id: "retouch", skill_prompt: "轻度美白 + 磨皮，保留皮肤质感" },
+                ],
+              },
+              review_history: [
+                { attempt: 0, review: { pass: true, overall_score: 8.2, feedback: "肤质自然，没有磨平五官，符合需求。" } },
+              ],
+            },
           },
           "node-c": {
             id: "node-c", parent_id: "node-b", children: [],
-            prompt: "加上柔和的人像打光，提亮面部",
-            note: "已完成柔和打光", status: "done", mask_image_path: "", metadata: {},
+            prompt: "加上柔和的人像打光，提亮面部，保留原有氛围",
+            note: "已加上侧向柔光：面部更亮、阴影更软，没有压过原图氛围。若要换背景或加 Cosplay 特效，直接说即可。",
+            status: "done", mask_image_path: "",
+            metadata: {
+              workflow_plan: {
+                reasoning: "在已修肤的基础上只补光，避免再次改动皮肤。",
+                nodes: [
+                  { node_id: "s2", skill_id: "retouch", skill_prompt: "柔和人像打光，提亮面部" },
+                ],
+              },
+            },
           },
         },
       },
@@ -780,6 +802,169 @@
     closeDrawer();
   }
 
+  function collectAssistantText(node) {
+    const parts = [];
+    if (node.note) parts.push(node.note);
+    const meta = node.metadata || {};
+    const plan = meta.workflow_plan;
+    if (plan && plan.reasoning) parts.push(plan.reasoning);
+    const reviews = meta.review_history || [];
+    reviews.forEach((entry) => {
+      const r = entry.review || entry;
+      if (r.feedback) parts.push("审核：" + r.feedback);
+      if (Array.isArray(r.suggestions) && r.suggestions.length) {
+        parts.push("建议：" + r.suggestions.join("；"));
+      }
+    });
+    return parts.join("\n\n");
+  }
+
+  function collectPlanSteps(node) {
+    const plan = node.metadata && node.metadata.workflow_plan;
+    const steps = plan && plan.nodes ? plan.nodes : [];
+    return steps.map((s, i) => {
+      const name = s.skill_name || s.skill_id || ("步骤 " + (i + 1));
+      const prompt = s.skill_prompt || "";
+      return prompt ? name + " — " + prompt : name;
+    });
+  }
+
+  function attachClamp(textEl) {
+    requestAnimationFrame(() => {
+      if (!textEl || !textEl.parentNode) return;
+      if (textEl.scrollHeight <= 176) return;
+      textEl.classList.add("is-clamped");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "dlg-expand";
+      btn.textContent = "展开";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const open = textEl.classList.toggle("is-expanded");
+        textEl.classList.toggle("is-clamped", !open);
+        btn.textContent = open ? "收起" : "展开";
+      });
+      textEl.parentNode.insertBefore(btn, textEl.nextSibling);
+    });
+  }
+
+  function renderDialogueBubble(kind, nodeId, opts) {
+    const wrap = document.createElement("div");
+    wrap.className = "dlg-" + kind;
+    const bubble = document.createElement("div");
+    bubble.className = "dlg-bubble";
+    bubble.setAttribute("role", "button");
+    bubble.tabIndex = 0;
+    bubble.addEventListener("click", () => selectTurn(nodeId));
+    bubble.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        selectTurn(nodeId);
+      }
+    });
+
+    const label = document.createElement("div");
+    label.className = "dlg-label";
+    label.textContent = opts.label;
+    bubble.appendChild(label);
+
+    if (opts.text) {
+      const text = document.createElement("div");
+      text.className = "dlg-text";
+      text.textContent = opts.text;
+      bubble.appendChild(text);
+      attachClamp(text);
+    }
+
+    if (opts.status) {
+      const st = document.createElement("div");
+      st.className = "dlg-status" + (opts.statusClass ? " " + opts.statusClass : "");
+      if (opts.statusId) st.id = opts.statusId;
+      st.textContent = opts.status;
+      bubble.appendChild(st);
+    }
+
+    if (opts.badge) {
+      const badge = document.createElement("span");
+      badge.className = "mask-badge";
+      badge.textContent = opts.badge;
+      bubble.appendChild(badge);
+    }
+
+    if (opts.refs && opts.refs.length) {
+      const refs = document.createElement("div");
+      refs.className = "dlg-refs";
+      opts.refs.forEach((ref) => {
+        const img = document.createElement("img");
+        img.src = ref.data_url;
+        img.alt = ref.description || "参考图";
+        refs.appendChild(img);
+      });
+      bubble.appendChild(refs);
+    }
+
+    if (opts.steps && opts.steps.length) {
+      const list = document.createElement("ol");
+      list.className = "dlg-steps";
+      opts.steps.forEach((step) => {
+        const li = document.createElement("li");
+        li.textContent = step;
+        list.appendChild(li);
+      });
+      bubble.appendChild(list);
+    }
+
+    if (opts.showThumb) {
+      if (opts.thumbReady) {
+        const thumb = document.createElement("img");
+        thumb.className = "dlg-thumb";
+        thumb.alt = "结果图";
+        bubble.appendChild(thumb);
+        loadThumbnail(thumb, currentSessionId, nodeId);
+        thumb.addEventListener("click", (e) => {
+          e.stopPropagation();
+          showImageViewer(currentSessionId, nodeId);
+        });
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "dlg-thumb is-placeholder";
+        ph.textContent = opts.thumbPlaceholder || "处理中";
+        bubble.appendChild(ph);
+      }
+    }
+
+    if (opts.branchNav) bubble.appendChild(opts.branchNav);
+    wrap.appendChild(bubble);
+    return wrap;
+  }
+
+  function renderBranchNav(parent, node) {
+    if (!parent || !parent.children || parent.children.length <= 1) return null;
+    const childIdx = parent.children.indexOf(node.id);
+    const nav = document.createElement("div");
+    nav.className = "branch-nav";
+    const btnPrev = document.createElement("button");
+    btnPrev.type = "button";
+    btnPrev.textContent = "◀";
+    btnPrev.onclick = (e) => {
+      e.stopPropagation();
+      navigateBranch(parent.id, -1);
+    };
+    const navInfo = document.createElement("span");
+    navInfo.textContent = `${childIdx + 1}/${parent.children.length}`;
+    const btnNext = document.createElement("button");
+    btnNext.type = "button";
+    btnNext.textContent = "▶";
+    btnNext.onclick = (e) => {
+      e.stopPropagation();
+      navigateBranch(parent.id, 1);
+    };
+    nav.appendChild(btnPrev);
+    nav.appendChild(navInfo);
+    nav.appendChild(btnNext);
+    return nav;
+  }
+
   function renderTurnList() {
     if (!turnListEl) return;
     turnListEl.innerHTML = "";
@@ -796,102 +981,53 @@
     if (turnListEmpty) turnListEmpty.style.display = "none";
     const canvasId = getCanvasNodeId();
 
-    path.forEach((nodeId, index) => {
+    path.forEach((nodeId) => {
       const node = nodes[nodeId];
       if (!node) return;
       const isRoot = nodeId === root_id;
-      const item = document.createElement("div");
-      item.setAttribute("role", "button");
-      item.tabIndex = 0;
-      item.className = "turn-item" + (nodeId === canvasId ? " active" : "");
-      item.dataset.nodeId = nodeId;
-      item.title = node.prompt || node.note || (isRoot ? "原图" : "节点");
-      item.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          selectTurn(nodeId);
-        }
-      });
-
-      if (node.status === "done") {
-        const thumb = document.createElement("img");
-        thumb.className = "turn-item-thumb";
-        thumb.alt = "预览";
-        item.appendChild(thumb);
-        loadThumbnail(thumb, currentSessionId, nodeId);
-        thumb.addEventListener("click", (e) => {
-          e.stopPropagation();
-          showImageViewer(currentSessionId, nodeId);
-        });
-      } else {
-        const ph = document.createElement("div");
-        ph.className = "turn-item-thumb is-placeholder";
-        ph.textContent = node.status === "error" ? "!" : "…";
-        item.appendChild(ph);
-      }
-
-      const info = document.createElement("div");
-      info.className = "turn-item-info";
-
-      const role = document.createElement("div");
-      role.className = "turn-item-role";
-      role.textContent = isRoot ? "原图" : "第 " + index + " 轮";
-      info.appendChild(role);
-
-      const prompt = document.createElement("div");
-      prompt.className = "turn-item-prompt";
-      prompt.textContent = isRoot
-        ? (node.note || "初始上传")
-        : (node.prompt || node.note || "修图指令");
-      info.appendChild(prompt);
-
-      const meta = document.createElement("div");
-      meta.className = "turn-item-meta";
-      if (node.status === "processing" || node.status === "pending") {
-        meta.classList.add("is-processing");
-        meta.id = "turn-processing-" + node.id;
-        meta.textContent = node.progress_msg || "处理中...";
-      } else if (node.status === "error") {
-        meta.classList.add("is-error");
-        meta.textContent = "出错: " + (node.error_msg || "未知错误");
-      } else {
-        meta.textContent = node.note && !isRoot ? node.note : (isRoot ? "点击切换到此图" : "完成");
-      }
-      if (node.mask_image_path) {
-        meta.textContent = (meta.textContent ? meta.textContent + " · " : "") + "选区";
-      }
-      info.appendChild(meta);
-
       const parent = node.parent_id ? nodes[node.parent_id] : null;
-      if (parent && parent.children && parent.children.length > 1) {
-        const childIdx = parent.children.indexOf(node.id);
-        const nav = document.createElement("div");
-        nav.className = "branch-nav";
-        const btnPrev = document.createElement("button");
-        btnPrev.type = "button";
-        btnPrev.textContent = "◀";
-        btnPrev.onclick = (e) => {
-          e.stopPropagation();
-          navigateBranch(parent.id, -1);
-        };
-        const navInfo = document.createElement("span");
-        navInfo.textContent = `${childIdx + 1}/${parent.children.length}`;
-        const btnNext = document.createElement("button");
-        btnNext.type = "button";
-        btnNext.textContent = "▶";
-        btnNext.onclick = (e) => {
-          e.stopPropagation();
-          navigateBranch(parent.id, 1);
-        };
-        nav.appendChild(btnPrev);
-        nav.appendChild(navInfo);
-        nav.appendChild(btnNext);
-        info.appendChild(nav);
+      const round = document.createElement("div");
+      round.className = "dlg-round" + (nodeId === canvasId ? " active" : "");
+      round.dataset.nodeId = nodeId;
+
+      if (!isRoot && node.prompt) {
+        const refs = node.metadata && node.metadata.reference_images;
+        round.appendChild(renderDialogueBubble("user", nodeId, {
+          label: "我的需求",
+          text: node.prompt,
+          badge: node.mask_image_path ? "◱ 选区" : "",
+          refs: refs || [],
+        }));
       }
 
-      item.appendChild(info);
-      item.addEventListener("click", () => selectTurn(nodeId));
-      turnListEl.appendChild(item);
+      const processing = node.status === "processing" || node.status === "pending";
+      const errored = node.status === "error";
+      const reply = collectAssistantText(node);
+      const steps = collectPlanSteps(node);
+      let status = "";
+      let statusClass = "";
+      if (processing) {
+        status = node.progress_msg || "准备中...";
+        statusClass = "is-processing";
+      } else if (errored) {
+        status = "出错: " + (node.error_msg || "未知错误");
+        statusClass = "is-error";
+      }
+
+      round.appendChild(renderDialogueBubble("bot", nodeId, {
+        label: isRoot ? "CosKit · 原图" : "CosKit",
+        text: reply || (isRoot ? "已上传原图，可作为后续修图的起点。" : ""),
+        status: status,
+        statusClass: statusClass,
+        statusId: processing ? "turn-processing-" + node.id : "",
+        steps: steps,
+        showThumb: true,
+        thumbReady: node.status === "done",
+        thumbPlaceholder: errored ? "无图像" : "处理中",
+        branchNav: renderBranchNav(parent, node),
+      }));
+
+      turnListEl.appendChild(round);
     });
   }
 
