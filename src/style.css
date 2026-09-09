@@ -374,6 +374,22 @@ body {
   margin-top: 2px;
 }
 
+.dlg-bubble .wf-wrap {
+  margin-top: 2px;
+}
+
+.dlg-bubble .workflow-progress {
+  padding: 8px 6px 4px;
+}
+
+.dlg-bubble .wf-details summary {
+  font-size: 12px;
+}
+
+.dlg-bubble .wf-step-prompt {
+  white-space: normal;
+}
+
 .legacy-messages-host {
   display: none !important;
 }

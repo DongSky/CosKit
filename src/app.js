@@ -232,13 +232,29 @@
             status: "done", mask_image_path: "",
             metadata: {
               workflow_plan: {
-                reasoning: "先处理肤质再考虑光线，避免一次改太多导致脸部发假。",
+                reasoning: "先处理肤质再考虑光线，避免一次改太多导致脸部发假。分三步：美白、磨皮、质感回加。",
                 nodes: [
-                  { node_id: "s1", skill_id: "retouch", skill_prompt: "轻度美白 + 磨皮，保留皮肤质感" },
+                  { node_id: "s1", skill_id: "retouch", skill_prompt: "轻度美白，提亮肤色，避免过曝" },
+                  { node_id: "s2", skill_id: "retouch", skill_prompt: "局部磨皮，弱化瑕疵，保留毛孔" },
+                  { node_id: "s3", skill_id: "retouch", skill_prompt: "回加皮肤质感，避免五官被磨平" },
                 ],
               },
+              workflow_status: {
+                s1: { status: "done", skill_name: "美白", skill_prompt: "轻度美白，提亮肤色，避免过曝" },
+                s2: { status: "done", skill_name: "磨皮", skill_prompt: "局部磨皮，弱化瑕疵，保留毛孔" },
+                s3: { status: "done", skill_name: "质感", skill_prompt: "回加皮肤质感，避免五官被磨平" },
+              },
               review_history: [
-                { attempt: 0, review: { pass: true, overall_score: 8.2, feedback: "肤质自然，没有磨平五官，符合需求。" } },
+                {
+                  attempt: 0,
+                  review: {
+                    pass: true,
+                    overall_score: 8.2,
+                    feedback: "肤质自然，没有磨平五官，符合需求。",
+                    suggestions: ["若面部仍偏暗，可再补一层柔光"],
+                    dimensions: { aesthetic_quality: 8.0, requirement_match: 8.5, technical_quality: 8.0, consistency: 8.2 },
+                  },
+                },
               ],
             },
           },
@@ -251,8 +267,13 @@
               workflow_plan: {
                 reasoning: "在已修肤的基础上只补光，避免再次改动皮肤。",
                 nodes: [
-                  { node_id: "s2", skill_id: "retouch", skill_prompt: "柔和人像打光，提亮面部" },
+                  { node_id: "s4", skill_id: "retouch", skill_prompt: "分析面部阴影，确定柔光方向" },
+                  { node_id: "s5", skill_id: "retouch", skill_prompt: "加上侧向柔光，提亮面部，保留原氛围" },
                 ],
+              },
+              workflow_status: {
+                s4: { status: "done", skill_name: "光线分析", skill_prompt: "分析面部阴影，确定柔光方向" },
+                s5: { status: "done", skill_name: "柔和打光", skill_prompt: "加上侧向柔光，提亮面部，保留原氛围" },
               },
             },
           },
@@ -798,35 +819,32 @@
     if (nodeId !== last) setEditFrom(nodeId);
     else clearEditFrom();
     renderTurnList();
+    const active = turnListEl && turnListEl.querySelector(".dlg-round.active");
+    if (active) active.scrollIntoView({ block: "nearest" });
     updateCanvas();
     closeDrawer();
   }
 
   function collectAssistantText(node) {
-    const parts = [];
-    if (node.note) parts.push(node.note);
-    const meta = node.metadata || {};
-    const plan = meta.workflow_plan;
-    if (plan && plan.reasoning) parts.push(plan.reasoning);
-    const reviews = meta.review_history || [];
-    reviews.forEach((entry) => {
-      const r = entry.review || entry;
-      if (r.feedback) parts.push("审核：" + r.feedback);
-      if (Array.isArray(r.suggestions) && r.suggestions.length) {
-        parts.push("建议：" + r.suggestions.join("；"));
-      }
-    });
-    return parts.join("\n\n");
+    return (node && node.note) || "";
   }
 
-  function collectPlanSteps(node) {
-    const plan = node.metadata && node.metadata.workflow_plan;
-    const steps = plan && plan.nodes ? plan.nodes : [];
-    return steps.map((s, i) => {
-      const name = s.skill_name || s.skill_id || ("步骤 " + (i + 1));
-      const prompt = s.skill_prompt || "";
-      return prompt ? name + " — " + prompt : name;
-    });
+  function workflowPayload(node) {
+    const meta = (node && node.metadata) || {};
+    if (!meta.workflow_plan && !meta.workflow_status) return null;
+    return {
+      workflow_plan: meta.workflow_plan,
+      workflow_status: meta.workflow_status || {},
+      review_history: meta.review_history || [],
+    };
+  }
+
+  function bindWorkflowStop(el) {
+    if (!el) return;
+    const stop = (e) => e.stopPropagation();
+    el.addEventListener("click", stop);
+    el.addEventListener("pointerdown", stop);
+    el.addEventListener("keydown", stop);
   }
 
   function attachClamp(textEl) {
@@ -903,15 +921,15 @@
       bubble.appendChild(refs);
     }
 
-    if (opts.steps && opts.steps.length) {
-      const list = document.createElement("ol");
-      list.className = "dlg-steps";
-      opts.steps.forEach((step) => {
-        const li = document.createElement("li");
-        li.textContent = step;
-        list.appendChild(li);
-      });
-      bubble.appendChild(list);
+    if (opts.workflow || opts.workflowId) {
+      const wfWrap = document.createElement("div");
+      wfWrap.className = "wf-wrap";
+      if (opts.workflowId) wfWrap.id = opts.workflowId;
+      if (opts.workflow) {
+        wfWrap.innerHTML = renderWorkflowProgress(opts.workflow);
+      }
+      bindWorkflowStop(wfWrap);
+      bubble.appendChild(wfWrap);
     }
 
     if (opts.showThumb) {
@@ -967,6 +985,7 @@
 
   function renderTurnList() {
     if (!turnListEl) return;
+    const prevWf = captureWfExpanded(turnListEl);
     turnListEl.innerHTML = "";
     if (!sessionData) {
       if (turnListEmpty) turnListEmpty.style.display = "";
@@ -1003,7 +1022,7 @@
       const processing = node.status === "processing" || node.status === "pending";
       const errored = node.status === "error";
       const reply = collectAssistantText(node);
-      const steps = collectPlanSteps(node);
+      const wf = workflowPayload(node);
       let status = "";
       let statusClass = "";
       if (processing) {
@@ -1020,7 +1039,8 @@
         status: status,
         statusClass: statusClass,
         statusId: processing ? "turn-processing-" + node.id : "",
-        steps: steps,
+        workflow: wf,
+        workflowId: (wf || processing) ? "turn-wf-" + node.id : "",
         showThumb: true,
         thumbReady: node.status === "done",
         thumbPlaceholder: errored ? "无图像" : "处理中",
@@ -1029,6 +1049,11 @@
 
       turnListEl.appendChild(round);
     });
+    if (prevWf && prevWf.hasState) restoreWfExpanded(turnListEl, prevWf);
+    if (new URLSearchParams(location.search).get("preview") === "session") {
+      const step = turnListEl.querySelector(".wf-step");
+      if (step) step.open = true;
+    }
   }
 
   // ── Branch navigation ─────────────────────────────────
@@ -1456,11 +1481,16 @@
             ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
             : status.progress_msg || "处理中...";
         if (el) {
-          if (status.workflow_status) {
+          if (status.workflow_status || status.workflow_plan) {
             renderWorkflowInto(el, status);
           } else {
             el.innerHTML = `<div class="spinner"></div><span>${escapeHtml(msg)}</span>`;
           }
+        }
+        const sideWf = document.getElementById(`turn-wf-${nodeId}`);
+        if (sideWf && (status.workflow_status || status.workflow_plan)) {
+          renderWorkflowInto(sideWf, status);
+          bindWorkflowStop(sideWf);
         }
         if (side) side.textContent = msg;
       } else if (status.status === "done" || status.status === "error") {
