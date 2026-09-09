@@ -8,6 +8,8 @@
   // ── State ──────────────────────────────────────────────
   let currentSessionId = null;
   let sessionData = null; // full session from get_session()
+  let selectedCanvasNodeId = null; // node shown on the center canvas
+  let listedSessions = []; // last list_sessions() result
   let editFromNodeId = null; // non-null when user clicks a historical node
   let pollingTimers = {}; // node_id -> intervalId
   let cachedDefaults = null; // cached default settings for prompt reset
@@ -32,6 +34,11 @@
   const THEME_KEY = "coskit-theme";
   const darkMQ = window.matchMedia("(prefers-color-scheme: dark)");
   let themeManual = localStorage.getItem(THEME_KEY); // null = auto
+  const themeParam = new URLSearchParams(location.search).get("theme");
+  if (themeParam === "dark" || themeParam === "light") {
+    themeManual = themeParam;
+    localStorage.setItem(THEME_KEY, themeParam);
+  }
 
   function applyTheme(theme) {
     document.documentElement.dataset.theme = theme;
@@ -71,11 +78,13 @@
 
   // ── Drawer ───────────────────────────────────────────────
   function openDrawer() {
-    document.getElementById("drawer").classList.add("drawer-open");
+    const sidebar = document.getElementById("session-sidebar");
+    if (sidebar) sidebar.classList.add("drawer-open");
     document.getElementById("drawer-backdrop").classList.add("drawer-backdrop-show");
   }
   function closeDrawer() {
-    document.getElementById("drawer").classList.remove("drawer-open");
+    const sidebar = document.getElementById("session-sidebar");
+    if (sidebar) sidebar.classList.remove("drawer-open");
     document.getElementById("drawer-backdrop").classList.remove("drawer-backdrop-show");
   }
   function handleDrawerAction(action) {
@@ -113,6 +122,15 @@
   const welcome = document.getElementById("welcome");
   const messagesEl = document.getElementById("messages");
   const inputBar = document.getElementById("input-bar");
+  const canvasView = document.getElementById("canvas-view");
+  const canvasImage = document.getElementById("canvas-image");
+  const canvasProcessing = document.getElementById("canvas-processing");
+  const canvasEmpty = document.getElementById("canvas-empty");
+  const nodeFilmstrip = document.getElementById("node-filmstrip");
+  const timelineWrap = document.getElementById("timeline-wrap");
+  const timelineToggle = document.getElementById("timeline-toggle");
+  const sessionListEl = document.getElementById("session-list");
+  const sessionListEmpty = document.getElementById("session-list-empty");
   const promptInput = document.getElementById("prompt-input");
   const btnSend = document.getElementById("btn-send");
   const btnNewSession = document.getElementById("btn-new-session");
@@ -159,15 +177,93 @@
   // ── Tauri invoke bridge ─────────────────────────────────
   // Lightweight no-op bridge so the static frontend can be previewed in a
   // browser without crashing. Production Tauri always provides __TAURI__.
+  // `?preview=session` injects stub sessions + sample images for layout shots.
   if (!window.__TAURI__ || !window.__TAURI__.core) {
+    const previewMode = new URLSearchParams(location.search).get("preview");
+    function stubPortrait(hue, title, accent) {
+      const svg =
+        `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="900" viewBox="0 0 720 900">` +
+        `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">` +
+        `<stop offset="0%" stop-color="hsl(${hue},42%,82%)"/>` +
+        `<stop offset="100%" stop-color="hsl(${hue},32%,38%)"/>` +
+        `</linearGradient></defs>` +
+        `<rect width="720" height="900" fill="url(#g)"/>` +
+        `<ellipse cx="360" cy="320" rx="118" ry="148" fill="hsl(${hue},28%,90%)"/>` +
+        `<ellipse cx="360" cy="300" rx="70" ry="78" fill="hsl(${hue},22%,76%)"/>` +
+        `<rect x="232" y="490" width="256" height="300" rx="90" fill="${accent || `hsl(${hue},36%,62%)`}"/>` +
+        `<text x="360" y="850" text-anchor="middle" fill="#fff" font-size="26" font-family="system-ui,sans-serif">${title}</text>` +
+        `</svg>`;
+      return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    }
+    const stubImages = {
+      "sess-portrait/root-a": stubPortrait(210, "原图", "#7dd3fc"),
+      "sess-portrait/node-b": stubPortrait(205, "美白磨皮", "#38bdf8"),
+      "sess-cosplay/root-c": stubPortrait(265, "Cosplay", "#c4b5fd"),
+    };
+    const stubSessions = previewMode === "session" ? [
+      {
+        session_id: "sess-portrait",
+        root_id: "root-a",
+        created_at: Date.now() / 1000 - 3600,
+        node_count: 2,
+        note: "人像精修 · 美白磨皮",
+      },
+      {
+        session_id: "sess-cosplay",
+        root_id: "root-c",
+        created_at: Date.now() / 1000 - 86400,
+        node_count: 1,
+        note: "Cosplay 氛围图",
+      },
+    ] : [];
+    const stubFull = {
+      "sess-portrait": {
+        session_id: "sess-portrait",
+        root_id: "root-a",
+        original_size: [720, 900],
+        active_path: ["root-a", "node-b"],
+        nodes: {
+          "root-a": {
+            id: "root-a", parent_id: null, children: ["node-b"], prompt: "",
+            note: "原图", status: "done", mask_image_path: "", metadata: {},
+          },
+          "node-b": {
+            id: "node-b", parent_id: "root-a", children: [],
+            prompt: "美白磨皮，保持自然肤质",
+            note: "已完成美白磨皮", status: "done", mask_image_path: "", metadata: {},
+          },
+        },
+      },
+      "sess-cosplay": {
+        session_id: "sess-cosplay",
+        root_id: "root-c",
+        original_size: [720, 900],
+        active_path: ["root-c"],
+        nodes: {
+          "root-c": {
+            id: "root-c", parent_id: null, children: [], prompt: "",
+            note: "原图", status: "done", mask_image_path: "", metadata: {},
+          },
+        },
+      },
+    };
     window.__TAURI__ = {
       core: {
-        invoke: async (cmd) => {
+        invoke: async (cmd, args) => {
+          const a = args || {};
           if (cmd === "get_settings") {
             return { text_api_key: "", image_api_key: "", review_enabled: false };
           }
-          if (cmd === "list_sessions") return [];
-          if (cmd === "get_image") return "";
+          if (cmd === "list_sessions") return stubSessions;
+          if (cmd === "get_session") return stubFull[a.session_id] || {};
+          if (cmd === "get_image") {
+            return stubImages[a.session_id + "/" + a.node_id] || stubImages[a.session_id + "/" + (stubFull[a.session_id] && stubFull[a.session_id].root_id)] || "";
+          }
+          if (cmd === "delete_session") {
+            const i = stubSessions.findIndex((s) => s.session_id === a.session_id);
+            if (i >= 0) stubSessions.splice(i, 1);
+            return { ok: true };
+          }
           return {};
         },
       },
@@ -286,14 +382,14 @@
       chip.classList.toggle("active", chip.dataset.prompt === text);
     });
     if (welcomePromptPreview) {
-      if (text && welcome.style.display !== "none") {
+      if (text && isWelcomeVisible()) {
         welcomePromptPreview.hidden = false;
         welcomePromptPreview.textContent = "将发送：" + text;
       } else {
         welcomePromptPreview.hidden = true;
       }
     }
-    if (options.focus && inputBar.style.display !== "none") {
+    if (options.focus) {
       promptInput.focus();
     }
   }
@@ -340,6 +436,7 @@
       clearMask();
       await refreshSession();
       showChatMode();
+      refreshSessionList();
     } finally {
       uploading = false;
       welcome.style.pointerEvents = "";
@@ -373,6 +470,7 @@
       clearMask();
       await refreshSession();
       showChatMode();
+      refreshSessionList();
     } catch (err) {
       console.error("[CosKit] pickAndUpload error:", err);
       showToast("上传失败: " + (err && err.toString ? err.toString() : err), "error");
@@ -383,11 +481,51 @@
     }
   }
 
+  function isWelcomeVisible() {
+    return welcome && welcome.style.display !== "none" && !welcome.hidden;
+  }
+
+  function getCanvasNodeId() {
+    if (selectedCanvasNodeId && sessionData && sessionData.nodes[selectedCanvasNodeId]) {
+      return selectedCanvasNodeId;
+    }
+    if (editFromNodeId && sessionData && sessionData.nodes[editFromNodeId]) {
+      return editFromNodeId;
+    }
+    if (!sessionData) return null;
+    const path = sessionData.active_path || [];
+    return path[path.length - 1] || sessionData.root_id || null;
+  }
+
+  async function loadSession(sessionId) {
+    if (!sessionId) return;
+    currentSessionId = sessionId;
+    editFromNodeId = null;
+    selectedCanvasNodeId = null;
+    clearMask();
+    await refreshSession();
+    showChatMode();
+    closeDrawer();
+    closeHistoryModal();
+    await refreshSessionList();
+  }
+
   // ── Session refresh ────────────────────────────────────
   async function refreshSession() {
     if (!currentSessionId) return;
     sessionData = await api().get_session(currentSessionId);
+    const path = (sessionData && sessionData.active_path) || [];
+    if (!selectedCanvasNodeId || !sessionData.nodes[selectedCanvasNodeId]) {
+      selectedCanvasNodeId = path[path.length - 1] || sessionData.root_id;
+    }
+    await renderWorkspace();
+  }
+
+  async function renderWorkspace() {
     renderMessages();
+    renderFilmstrip();
+    await updateCanvas();
+    highlightSessionList();
   }
 
   // ── Render messages along active_path ──────────────────
@@ -591,13 +729,207 @@
     }
   }
 
+  async function updateCanvas() {
+    if (!canvasView) return;
+    const nodeId = getCanvasNodeId();
+    const node = sessionData && nodeId ? sessionData.nodes[nodeId] : null;
+    if (!node) {
+      if (canvasImage) canvasImage.hidden = true;
+      if (canvasProcessing) canvasProcessing.hidden = true;
+      if (canvasEmpty) {
+        canvasEmpty.hidden = false;
+        canvasEmpty.textContent = "此节点暂无图像";
+      }
+      return;
+    }
+    if (canvasEmpty) canvasEmpty.hidden = true;
+    if (node.status === "processing" || node.status === "pending") {
+      if (canvasImage) canvasImage.hidden = true;
+      if (canvasProcessing) {
+        canvasProcessing.hidden = false;
+        const label = canvasProcessing.querySelector("span");
+        if (label) label.textContent = node.progress_msg || "准备中...";
+      }
+      return;
+    }
+    if (canvasProcessing) canvasProcessing.hidden = true;
+    if (node.status === "error") {
+      if (canvasImage) canvasImage.hidden = true;
+      if (canvasEmpty) {
+        canvasEmpty.hidden = false;
+        canvasEmpty.textContent = "出错: " + (node.error_msg || "未知错误");
+      }
+      return;
+    }
+    if (canvasImage) {
+      canvasImage.hidden = false;
+      canvasImage.dataset.sessionId = currentSessionId;
+      canvasImage.dataset.nodeId = node.id;
+      const dataUrl = await api().get_image(currentSessionId, node.id, false);
+      if (dataUrl) canvasImage.src = dataUrl;
+    }
+  }
+
+  function renderFilmstrip() {
+    if (!nodeFilmstrip) return;
+    nodeFilmstrip.innerHTML = "";
+    if (!sessionData) {
+      nodeFilmstrip.hidden = true;
+      return;
+    }
+    const { nodes, active_path, root_id } = sessionData;
+    const path = active_path || [];
+    if (!path.length) {
+      nodeFilmstrip.hidden = true;
+      return;
+    }
+    nodeFilmstrip.hidden = false;
+    const canvasId = getCanvasNodeId();
+    path.forEach((nodeId) => {
+      const node = nodes[nodeId];
+      if (!node) return;
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "film-item" + (nodeId === canvasId ? " active" : "");
+      item.title = node.note || node.prompt || (nodeId === root_id ? "原图" : "节点");
+
+      const img = document.createElement("img");
+      img.alt = "";
+      item.appendChild(img);
+      loadThumbnail(img, currentSessionId, nodeId);
+
+      const label = document.createElement("span");
+      label.className = "film-item-label";
+      label.textContent = nodeId === root_id ? "原图" : (node.note || node.prompt || "节点");
+      item.appendChild(label);
+
+      const parent = node.parent_id ? nodes[node.parent_id] : null;
+      if (parent && parent.children && parent.children.length > 1) {
+        const nav = document.createElement("div");
+        nav.className = "film-item-nav";
+        const prev = document.createElement("button");
+        prev.type = "button";
+        prev.textContent = "◀";
+        prev.title = "上一分支";
+        prev.onclick = (e) => {
+          e.stopPropagation();
+          navigateBranch(parent.id, -1);
+        };
+        const next = document.createElement("button");
+        next.type = "button";
+        next.textContent = "▶";
+        next.title = "下一分支";
+        next.onclick = (e) => {
+          e.stopPropagation();
+          navigateBranch(parent.id, 1);
+        };
+        nav.appendChild(prev);
+        nav.appendChild(next);
+        item.appendChild(nav);
+      }
+
+      item.addEventListener("click", () => {
+        selectedCanvasNodeId = nodeId;
+        const last = path[path.length - 1];
+        if (nodeId !== last) setEditFrom(nodeId);
+        else clearEditFrom();
+        renderFilmstrip();
+        updateCanvas();
+      });
+      nodeFilmstrip.appendChild(item);
+    });
+  }
+
+  function highlightSessionList() {
+    if (!sessionListEl) return;
+    sessionListEl.querySelectorAll(".session-item").forEach((el) => {
+      el.classList.toggle("active", el.dataset.sessionId === currentSessionId);
+    });
+  }
+
+  function renderSessionItems(sessions) {
+    if (!sessionListEl) return;
+    listedSessions = sessions || [];
+    sessionListEl.innerHTML = "";
+    if (!listedSessions.length) {
+      if (sessionListEmpty) sessionListEmpty.style.display = "";
+      return;
+    }
+    if (sessionListEmpty) sessionListEmpty.style.display = "none";
+    listedSessions.forEach((s) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "session-item" + (s.session_id === currentSessionId ? " active" : "");
+      item.dataset.sessionId = s.session_id;
+      item.title = s.note || s.session_id;
+
+      const thumb = document.createElement("img");
+      thumb.className = "session-item-thumb";
+      thumb.alt = "";
+      item.appendChild(thumb);
+      (async () => {
+        try {
+          const dataUrl = await api().get_image(s.session_id, s.root_id, true);
+          if (dataUrl) thumb.src = dataUrl;
+        } catch (e) {
+          // ignore missing thumbs
+        }
+      })();
+
+      const info = document.createElement("div");
+      info.className = "session-item-info";
+      const note = document.createElement("div");
+      note.className = "session-item-note";
+      note.textContent = s.note || "未命名会话";
+      info.appendChild(note);
+      const meta = document.createElement("div");
+      meta.className = "session-item-meta";
+      const date = s.created_at ? new Date(s.created_at * 1000) : null;
+      const when = date ? date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+      meta.textContent = (when ? when + " · " : "") + (s.node_count || 0) + " 节点";
+      info.appendChild(meta);
+      item.appendChild(info);
+
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "session-item-delete";
+      delBtn.title = "删除";
+      delBtn.textContent = "✕";
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm("确定删除此会话？此操作不可撤销。")) return;
+        await api().delete_session(s.session_id);
+        if (currentSessionId === s.session_id) {
+          showWelcomeMode();
+        }
+        await refreshSessionList();
+      };
+      item.appendChild(delBtn);
+
+      item.addEventListener("click", () => loadSession(s.session_id));
+      sessionListEl.appendChild(item);
+    });
+  }
+
+  async function refreshSessionList() {
+    let sessions = [];
+    try {
+      sessions = await api().list_sessions();
+    } catch (e) {
+      sessions = [];
+    }
+    renderSessionItems(sessions);
+  }
+
   // ── Branch navigation ─────────────────────────────────
   async function navigateBranch(parentNodeId, direction) {
     const result = await api().navigate_branch(currentSessionId, parentNodeId, direction);
     if (result.error) return;
     sessionData.active_path = result.active_path;
     clearMask(); // active leaf changed — a mask drawn on the old leaf is stale
-    renderMessages();
+    const path = sessionData.active_path || [];
+    selectedCanvasNodeId = path[path.length - 1] || selectedCanvasNodeId;
+    await renderWorkspace();
   }
 
   // ── Edit from historical node ──────────────────────────
@@ -1222,6 +1554,9 @@
       const t = await api().get_image(viewerSessionId, viewerNodeId, true);
       if (t) thumbEl.src = t;
     }
+    if (selectedCanvasNodeId === viewerNodeId || (canvasImage && canvasImage.dataset.nodeId === viewerNodeId)) {
+      await updateCanvas();
+    }
   }
 
   function buildLayerRow(layer, index, total) {
@@ -1349,7 +1684,14 @@
 
   // ── UI mode switching ──────────────────────────────────
   function showChatMode() {
+    document.body.dataset.workspace = "session";
     welcome.style.display = "none";
+    if (canvasView) {
+      canvasView.hidden = false;
+      canvasView.style.display = "flex";
+    }
+    if (nodeFilmstrip) nodeFilmstrip.hidden = false;
+    if (timelineWrap) timelineWrap.hidden = false;
     messagesEl.style.display = "flex";
     inputBar.style.display = "flex";
     document.getElementById("pipeline-modules").style.display = "flex";
@@ -1359,12 +1701,23 @@
   }
 
   function showWelcomeMode() {
+    document.body.dataset.workspace = "welcome";
     welcome.style.display = "flex";
+    if (canvasView) {
+      canvasView.hidden = true;
+      canvasView.style.display = "none";
+    }
+    if (nodeFilmstrip) {
+      nodeFilmstrip.hidden = true;
+      nodeFilmstrip.innerHTML = "";
+    }
+    if (timelineWrap) timelineWrap.hidden = true;
     messagesEl.style.display = "none";
-    inputBar.style.display = "none";
-    document.getElementById("pipeline-modules").style.display = "none";
+    inputBar.style.display = "flex";
+    document.getElementById("pipeline-modules").style.display = "flex";
     currentSessionId = null;
     sessionData = null;
+    selectedCanvasNodeId = null;
     editFromNodeId = null;
     referenceImages = [];
     renderReferenceImages();
@@ -1373,6 +1726,7 @@
     // Stop all polling
     Object.keys(pollingTimers).forEach(stopPolling);
     refreshWelcomeExtras();
+    highlightSessionList();
     if (promptInput.value.trim()) {
       fillPrompt(promptInput.value);
     }
@@ -1398,6 +1752,7 @@
       // settings may not be ready
     }
     await renderRecentSessions();
+    await refreshSessionList();
   }
 
   async function renderRecentSessions() {
@@ -1440,11 +1795,7 @@
       card.addEventListener("click", async (e) => {
         e.preventDefault();
         e.stopPropagation();
-        currentSessionId = s.session_id;
-        editFromNodeId = null;
-        clearMask();
-        await refreshSession();
-        showChatMode();
+        await loadSession(s.session_id);
       });
       recentSessionsList.appendChild(card);
     });
@@ -1786,6 +2137,7 @@
         if (currentSessionId === s.session_id) {
           showWelcomeMode();
         }
+        await refreshSessionList();
         // Refresh list
         openHistoryModal();
       };
@@ -1793,12 +2145,7 @@
 
       // Click to load session
       item.onclick = async () => {
-        currentSessionId = s.session_id;
-        editFromNodeId = null;
-        clearMask();
-        await refreshSession();
-        showChatMode();
-        closeHistoryModal();
+        await loadSession(s.session_id);
       };
 
       historyList.appendChild(item);
@@ -2108,6 +2455,22 @@
   document.getElementById("btn-hamburger").addEventListener("click", openDrawer);
   document.getElementById("drawer-close").addEventListener("click", closeDrawer);
   document.getElementById("drawer-backdrop").addEventListener("click", closeDrawer);
+  if (canvasImage) {
+    canvasImage.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sid = canvasImage.dataset.sessionId;
+      const nid = canvasImage.dataset.nodeId;
+      if (sid && nid) showImageViewer(sid, nid);
+    });
+  }
+  if (timelineToggle && timelineWrap) {
+    timelineToggle.addEventListener("click", () => {
+      const open = !timelineWrap.classList.contains("is-open");
+      timelineWrap.classList.toggle("is-open", open);
+      timelineToggle.setAttribute("aria-expanded", open ? "true" : "false");
+      if (chatArea) chatArea.hidden = !open;
+    });
+  }
   document.querySelectorAll(".drawer-item").forEach((btn) => {
     btn.addEventListener("click", () => handleDrawerAction(btn.dataset.action));
   });
@@ -2272,8 +2635,11 @@
   // ESC key closes modals
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
+      const sidebar = document.getElementById("session-sidebar");
       if (pipelineMorePanel && pipelineMorePanel.classList.contains("open")) {
         closePipelineMore();
+      } else if (sidebar && sidebar.classList.contains("drawer-open")) {
+        closeDrawer();
       } else if (historyModal.style.display !== "none") {
         closeHistoryModal();
       } else if (helpModal.style.display !== "none") {
@@ -2333,7 +2699,7 @@
     return /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?|avif)$/i.test(file.name || "");
   }
   function onWelcomeDragOver(e) {
-    if (welcome.style.display === "none") return;
+    if (!isWelcomeVisible()) return;
     if (![...e.dataTransfer.types].includes("Files")) return;
     e.preventDefault();
     setWelcomeDrag(true);
@@ -2343,7 +2709,7 @@
     setWelcomeDrag(false);
   }
   function onWelcomeDrop(e) {
-    if (welcome.style.display === "none") return;
+    if (!isWelcomeVisible()) return;
     e.preventDefault();
     setWelcomeDrag(false);
     const file = e.dataTransfer.files[0];
@@ -2370,6 +2736,8 @@
     } catch (e) {
       // ignore — settings may not be initialized yet
     }
+
+    await refreshSessionList();
 
     // Check for existing sessions
     const sessions = await api().list_sessions();
