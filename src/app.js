@@ -9,7 +9,6 @@
   let currentSessionId = null;
   let sessionData = null; // full session from get_session()
   let selectedCanvasNodeId = null; // node shown on the center canvas
-  let listedSessions = []; // last list_sessions() result
   let editFromNodeId = null; // non-null when user clicks a historical node
   let pollingTimers = {}; // node_id -> intervalId
   let cachedDefaults = null; // cached default settings for prompt reset
@@ -126,11 +125,8 @@
   const canvasImage = document.getElementById("canvas-image");
   const canvasProcessing = document.getElementById("canvas-processing");
   const canvasEmpty = document.getElementById("canvas-empty");
-  const nodeFilmstrip = document.getElementById("node-filmstrip");
-  const timelineWrap = document.getElementById("timeline-wrap");
-  const timelineToggle = document.getElementById("timeline-toggle");
-  const sessionListEl = document.getElementById("session-list");
-  const sessionListEmpty = document.getElementById("session-list-empty");
+  const turnListEl = document.getElementById("turn-list");
+  const turnListEmpty = document.getElementById("turn-list-empty");
   const promptInput = document.getElementById("prompt-input");
   const btnSend = document.getElementById("btn-send");
   const btnNewSession = document.getElementById("btn-new-session");
@@ -198,6 +194,7 @@
     const stubImages = {
       "sess-portrait/root-a": stubPortrait(210, "原图", "#7dd3fc"),
       "sess-portrait/node-b": stubPortrait(205, "美白磨皮", "#38bdf8"),
+      "sess-portrait/node-c": stubPortrait(195, "柔和打光", "#0ea5e9"),
       "sess-cosplay/root-c": stubPortrait(265, "Cosplay", "#c4b5fd"),
     };
     const stubSessions = previewMode === "session" ? [
@@ -205,7 +202,7 @@
         session_id: "sess-portrait",
         root_id: "root-a",
         created_at: Date.now() / 1000 - 3600,
-        node_count: 2,
+        node_count: 3,
         note: "人像精修 · 美白磨皮",
       },
       {
@@ -221,16 +218,21 @@
         session_id: "sess-portrait",
         root_id: "root-a",
         original_size: [720, 900],
-        active_path: ["root-a", "node-b"],
+        active_path: ["root-a", "node-b", "node-c"],
         nodes: {
           "root-a": {
             id: "root-a", parent_id: null, children: ["node-b"], prompt: "",
             note: "原图", status: "done", mask_image_path: "", metadata: {},
           },
           "node-b": {
-            id: "node-b", parent_id: "root-a", children: [],
+            id: "node-b", parent_id: "root-a", children: ["node-c"],
             prompt: "美白磨皮，保持自然肤质",
             note: "已完成美白磨皮", status: "done", mask_image_path: "", metadata: {},
+          },
+          "node-c": {
+            id: "node-c", parent_id: "node-b", children: [],
+            prompt: "加上柔和的人像打光，提亮面部",
+            note: "已完成柔和打光", status: "done", mask_image_path: "", metadata: {},
           },
         },
       },
@@ -436,7 +438,6 @@
       clearMask();
       await refreshSession();
       showChatMode();
-      refreshSessionList();
     } finally {
       uploading = false;
       welcome.style.pointerEvents = "";
@@ -470,7 +471,6 @@
       clearMask();
       await refreshSession();
       showChatMode();
-      refreshSessionList();
     } catch (err) {
       console.error("[CosKit] pickAndUpload error:", err);
       showToast("上传失败: " + (err && err.toString ? err.toString() : err), "error");
@@ -507,7 +507,6 @@
     showChatMode();
     closeDrawer();
     closeHistoryModal();
-    await refreshSessionList();
   }
 
   // ── Session refresh ────────────────────────────────────
@@ -523,9 +522,8 @@
 
   async function renderWorkspace() {
     renderMessages();
-    renderFilmstrip();
+    renderTurnList();
     await updateCanvas();
-    highlightSessionList();
   }
 
   // ── Render messages along active_path ──────────────────
@@ -770,155 +768,131 @@
     }
   }
 
-  function renderFilmstrip() {
-    if (!nodeFilmstrip) return;
-    nodeFilmstrip.innerHTML = "";
+  function selectTurn(nodeId) {
+    if (!sessionData || !sessionData.nodes[nodeId]) return;
+    selectedCanvasNodeId = nodeId;
+    const path = sessionData.active_path || [];
+    const last = path[path.length - 1];
+    if (nodeId !== last) setEditFrom(nodeId);
+    else clearEditFrom();
+    renderTurnList();
+    updateCanvas();
+    closeDrawer();
+  }
+
+  function renderTurnList() {
+    if (!turnListEl) return;
+    turnListEl.innerHTML = "";
     if (!sessionData) {
-      nodeFilmstrip.hidden = true;
+      if (turnListEmpty) turnListEmpty.style.display = "";
       return;
     }
     const { nodes, active_path, root_id } = sessionData;
     const path = active_path || [];
     if (!path.length) {
-      nodeFilmstrip.hidden = true;
+      if (turnListEmpty) turnListEmpty.style.display = "";
       return;
     }
-    nodeFilmstrip.hidden = false;
+    if (turnListEmpty) turnListEmpty.style.display = "none";
     const canvasId = getCanvasNodeId();
-    path.forEach((nodeId) => {
+
+    path.forEach((nodeId, index) => {
       const node = nodes[nodeId];
       if (!node) return;
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "film-item" + (nodeId === canvasId ? " active" : "");
-      item.title = node.note || node.prompt || (nodeId === root_id ? "原图" : "节点");
+      const isRoot = nodeId === root_id;
+      const item = document.createElement("div");
+      item.setAttribute("role", "button");
+      item.tabIndex = 0;
+      item.className = "turn-item" + (nodeId === canvasId ? " active" : "");
+      item.dataset.nodeId = nodeId;
+      item.title = node.prompt || node.note || (isRoot ? "原图" : "节点");
+      item.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectTurn(nodeId);
+        }
+      });
 
-      const img = document.createElement("img");
-      img.alt = "";
-      item.appendChild(img);
-      loadThumbnail(img, currentSessionId, nodeId);
+      if (node.status === "done") {
+        const thumb = document.createElement("img");
+        thumb.className = "turn-item-thumb";
+        thumb.alt = "预览";
+        item.appendChild(thumb);
+        loadThumbnail(thumb, currentSessionId, nodeId);
+        thumb.addEventListener("click", (e) => {
+          e.stopPropagation();
+          showImageViewer(currentSessionId, nodeId);
+        });
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "turn-item-thumb is-placeholder";
+        ph.textContent = node.status === "error" ? "!" : "…";
+        item.appendChild(ph);
+      }
 
-      const label = document.createElement("span");
-      label.className = "film-item-label";
-      label.textContent = nodeId === root_id ? "原图" : (node.note || node.prompt || "节点");
-      item.appendChild(label);
+      const info = document.createElement("div");
+      info.className = "turn-item-info";
+
+      const role = document.createElement("div");
+      role.className = "turn-item-role";
+      role.textContent = isRoot ? "原图" : "第 " + index + " 轮";
+      info.appendChild(role);
+
+      const prompt = document.createElement("div");
+      prompt.className = "turn-item-prompt";
+      prompt.textContent = isRoot
+        ? (node.note || "初始上传")
+        : (node.prompt || node.note || "修图指令");
+      info.appendChild(prompt);
+
+      const meta = document.createElement("div");
+      meta.className = "turn-item-meta";
+      if (node.status === "processing" || node.status === "pending") {
+        meta.classList.add("is-processing");
+        meta.id = "turn-processing-" + node.id;
+        meta.textContent = node.progress_msg || "处理中...";
+      } else if (node.status === "error") {
+        meta.classList.add("is-error");
+        meta.textContent = "出错: " + (node.error_msg || "未知错误");
+      } else {
+        meta.textContent = node.note && !isRoot ? node.note : (isRoot ? "点击切换到此图" : "完成");
+      }
+      if (node.mask_image_path) {
+        meta.textContent = (meta.textContent ? meta.textContent + " · " : "") + "选区";
+      }
+      info.appendChild(meta);
 
       const parent = node.parent_id ? nodes[node.parent_id] : null;
       if (parent && parent.children && parent.children.length > 1) {
+        const childIdx = parent.children.indexOf(node.id);
         const nav = document.createElement("div");
-        nav.className = "film-item-nav";
-        const prev = document.createElement("button");
-        prev.type = "button";
-        prev.textContent = "◀";
-        prev.title = "上一分支";
-        prev.onclick = (e) => {
+        nav.className = "branch-nav";
+        const btnPrev = document.createElement("button");
+        btnPrev.type = "button";
+        btnPrev.textContent = "◀";
+        btnPrev.onclick = (e) => {
           e.stopPropagation();
           navigateBranch(parent.id, -1);
         };
-        const next = document.createElement("button");
-        next.type = "button";
-        next.textContent = "▶";
-        next.title = "下一分支";
-        next.onclick = (e) => {
+        const navInfo = document.createElement("span");
+        navInfo.textContent = `${childIdx + 1}/${parent.children.length}`;
+        const btnNext = document.createElement("button");
+        btnNext.type = "button";
+        btnNext.textContent = "▶";
+        btnNext.onclick = (e) => {
           e.stopPropagation();
           navigateBranch(parent.id, 1);
         };
-        nav.appendChild(prev);
-        nav.appendChild(next);
-        item.appendChild(nav);
+        nav.appendChild(btnPrev);
+        nav.appendChild(navInfo);
+        nav.appendChild(btnNext);
+        info.appendChild(nav);
       }
 
-      item.addEventListener("click", () => {
-        selectedCanvasNodeId = nodeId;
-        const last = path[path.length - 1];
-        if (nodeId !== last) setEditFrom(nodeId);
-        else clearEditFrom();
-        renderFilmstrip();
-        updateCanvas();
-      });
-      nodeFilmstrip.appendChild(item);
-    });
-  }
-
-  function highlightSessionList() {
-    if (!sessionListEl) return;
-    sessionListEl.querySelectorAll(".session-item").forEach((el) => {
-      el.classList.toggle("active", el.dataset.sessionId === currentSessionId);
-    });
-  }
-
-  function renderSessionItems(sessions) {
-    if (!sessionListEl) return;
-    listedSessions = sessions || [];
-    sessionListEl.innerHTML = "";
-    if (!listedSessions.length) {
-      if (sessionListEmpty) sessionListEmpty.style.display = "";
-      return;
-    }
-    if (sessionListEmpty) sessionListEmpty.style.display = "none";
-    listedSessions.forEach((s) => {
-      const item = document.createElement("button");
-      item.type = "button";
-      item.className = "session-item" + (s.session_id === currentSessionId ? " active" : "");
-      item.dataset.sessionId = s.session_id;
-      item.title = s.note || s.session_id;
-
-      const thumb = document.createElement("img");
-      thumb.className = "session-item-thumb";
-      thumb.alt = "";
-      item.appendChild(thumb);
-      (async () => {
-        try {
-          const dataUrl = await api().get_image(s.session_id, s.root_id, true);
-          if (dataUrl) thumb.src = dataUrl;
-        } catch (e) {
-          // ignore missing thumbs
-        }
-      })();
-
-      const info = document.createElement("div");
-      info.className = "session-item-info";
-      const note = document.createElement("div");
-      note.className = "session-item-note";
-      note.textContent = s.note || "未命名会话";
-      info.appendChild(note);
-      const meta = document.createElement("div");
-      meta.className = "session-item-meta";
-      const date = s.created_at ? new Date(s.created_at * 1000) : null;
-      const when = date ? date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-      meta.textContent = (when ? when + " · " : "") + (s.node_count || 0) + " 节点";
-      info.appendChild(meta);
       item.appendChild(info);
-
-      const delBtn = document.createElement("button");
-      delBtn.type = "button";
-      delBtn.className = "session-item-delete";
-      delBtn.title = "删除";
-      delBtn.textContent = "✕";
-      delBtn.onclick = async (e) => {
-        e.stopPropagation();
-        if (!confirm("确定删除此会话？此操作不可撤销。")) return;
-        await api().delete_session(s.session_id);
-        if (currentSessionId === s.session_id) {
-          showWelcomeMode();
-        }
-        await refreshSessionList();
-      };
-      item.appendChild(delBtn);
-
-      item.addEventListener("click", () => loadSession(s.session_id));
-      sessionListEl.appendChild(item);
+      item.addEventListener("click", () => selectTurn(nodeId));
+      turnListEl.appendChild(item);
     });
-  }
-
-  async function refreshSessionList() {
-    let sessions = [];
-    try {
-      sessions = await api().list_sessions();
-    } catch (e) {
-      sessions = [];
-    }
-    renderSessionItems(sessions);
   }
 
   // ── Branch navigation ─────────────────────────────────
@@ -1340,17 +1314,19 @@
 
       if (status.status === "processing") {
         const el = document.getElementById(`processing-${nodeId}`);
+        const side = document.getElementById(`turn-processing-${nodeId}`);
+        const msg =
+          status.progress_total > 0
+            ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
+            : status.progress_msg || "处理中...";
         if (el) {
           if (status.workflow_status) {
             renderWorkflowInto(el, status);
           } else {
-            const msg =
-              status.progress_total > 0
-                ? `步骤 ${status.progress_step}/${status.progress_total}: ${status.progress_msg}`
-                : status.progress_msg || "处理中...";
             el.innerHTML = `<div class="spinner"></div><span>${escapeHtml(msg)}</span>`;
           }
         }
+        if (side) side.textContent = msg;
       } else if (status.status === "done" || status.status === "error") {
         stopPolling(nodeId);
         await refreshSession();
@@ -1690,8 +1666,6 @@
       canvasView.hidden = false;
       canvasView.style.display = "flex";
     }
-    if (nodeFilmstrip) nodeFilmstrip.hidden = false;
-    if (timelineWrap) timelineWrap.hidden = false;
     messagesEl.style.display = "flex";
     inputBar.style.display = "flex";
     document.getElementById("pipeline-modules").style.display = "flex";
@@ -1707,11 +1681,6 @@
       canvasView.hidden = true;
       canvasView.style.display = "none";
     }
-    if (nodeFilmstrip) {
-      nodeFilmstrip.hidden = true;
-      nodeFilmstrip.innerHTML = "";
-    }
-    if (timelineWrap) timelineWrap.hidden = true;
     messagesEl.style.display = "none";
     inputBar.style.display = "flex";
     document.getElementById("pipeline-modules").style.display = "flex";
@@ -1720,13 +1689,13 @@
     selectedCanvasNodeId = null;
     editFromNodeId = null;
     referenceImages = [];
+    renderTurnList();
     renderReferenceImages();
     clearMask();
     closePipelineMore();
     // Stop all polling
     Object.keys(pollingTimers).forEach(stopPolling);
     refreshWelcomeExtras();
-    highlightSessionList();
     if (promptInput.value.trim()) {
       fillPrompt(promptInput.value);
     }
@@ -1752,7 +1721,6 @@
       // settings may not be ready
     }
     await renderRecentSessions();
-    await refreshSessionList();
   }
 
   async function renderRecentSessions() {
@@ -2137,7 +2105,6 @@
         if (currentSessionId === s.session_id) {
           showWelcomeMode();
         }
-        await refreshSessionList();
         // Refresh list
         openHistoryModal();
       };
@@ -2463,14 +2430,6 @@
       if (sid && nid) showImageViewer(sid, nid);
     });
   }
-  if (timelineToggle && timelineWrap) {
-    timelineToggle.addEventListener("click", () => {
-      const open = !timelineWrap.classList.contains("is-open");
-      timelineWrap.classList.toggle("is-open", open);
-      timelineToggle.setAttribute("aria-expanded", open ? "true" : "false");
-      if (chatArea) chatArea.hidden = !open;
-    });
-  }
   document.querySelectorAll(".drawer-item").forEach((btn) => {
     btn.addEventListener("click", () => handleDrawerAction(btn.dataset.action));
   });
@@ -2736,8 +2695,6 @@
     } catch (e) {
       // ignore — settings may not be initialized yet
     }
-
-    await refreshSessionList();
 
     // Check for existing sessions
     const sessions = await api().list_sessions();

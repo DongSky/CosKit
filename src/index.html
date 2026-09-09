@@ -52,20 +52,20 @@
   </div>
 </header>
 
-<!-- Session sidebar (desktop column / mobile drawer) -->
+<!-- Dialogue sidebar: current session turns (desktop column / mobile drawer) -->
 <div id="drawer-backdrop" class="drawer-backdrop"></div>
 <div id="app-shell">
 <aside id="session-sidebar" class="session-sidebar">
   <div class="sidebar-header">
-    <span class="sidebar-title">会话历史</span>
+    <span class="sidebar-title">对话记录</span>
     <button id="drawer-close" class="header-icon-btn sidebar-close" title="关闭">
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 5l10 10M15 5L5 15"/>
       </svg>
     </button>
   </div>
-  <div id="session-list" class="session-list" role="list"></div>
-  <div id="session-list-empty" class="session-list-empty">暂无历史会话</div>
+  <div id="turn-list" class="turn-list" role="list"></div>
+  <div id="turn-list-empty" class="turn-list-empty">上传图片后，本会话的对话轮次会显示在这里</div>
   <nav class="drawer-nav sidebar-nav">
     <button class="drawer-item" data-action="new">+ 新建会话</button>
     <button class="drawer-item" data-action="history">全部会话</button>
@@ -116,15 +116,10 @@
     </div>
   </div>
 
-  <div id="node-filmstrip" class="node-filmstrip" hidden></div>
-
-  <div id="timeline-wrap" class="timeline-wrap" hidden>
-    <button type="button" id="timeline-toggle" class="timeline-toggle" aria-expanded="false" aria-controls="chat-area">
-      时间线
-      <span class="timeline-toggle-icon">▸</span>
-    </button>
-    <div id="chat-area" class="timeline-body" hidden>
-      <div id="messages" class="messages" style="display:none;"></div>
+  <!-- Hidden host: keep message-card rendering for polling / workflow / branch continue -->
+  <div id="legacy-messages-host" class="legacy-messages-host" hidden>
+    <div id="chat-area">
+      <div id="messages" class="messages"></div>
     </div>
   </div>
 </main>
