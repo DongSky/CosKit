@@ -38,9 +38,12 @@ AI 驱动的人像修图桌面应用，支持 **Gemini 兼容 API**、**OpenAI �
 | macOS (Intel) | `CosKit_x.x.x_x64.dmg` |
 | Windows (安装版) | `CosKit_x.x.x_x64-setup.exe` 或 `.msi` |
 | Windows (便携版) | `CosKit_x.x.x_x64_portable.exe` |
-| Android | `CosKit_x.x.x_universal.apk` |
+| Linux (x86_64) | `CosKit_x.x.x_amd64.AppImage`、`.deb`，以及 `.rpm` |
+| Android | `CosKit_x.x.x_universal.apk` / `.aab` |
 
 > iOS 版本需自行从源码构建并安装到设备。
+>
+> Linux 安装包格式由 `src-tauri/tauri.conf.json` 的 `bundle.targets: "all"` 决定（当前为 AppImage + deb + rpm）。Android / Linux 产物由 [Release CI](#github-release-ci) 与桌面端一并上传到同一份 **draft** GitHub Release。
 
 ### macOS 用户注意
 
@@ -269,14 +272,14 @@ PIXELFREE_RES_DIR=/path/to/Res cargo test --features "gpupixel,pixelfree" -- --i
 
 ## 从源码构建
 
-CosKit 支持 **macOS、Windows、Android、iOS** 全平台。
+CosKit 支持 **macOS、Windows、Linux、Android、iOS** 全平台。
 
 ### 环境要求
 
 - [Node.js](https://nodejs.org/) >= 20
 - [Rust](https://rustup.rs/) >= 1.77
 
-### 桌面端（macOS / Windows）
+### 桌面端（macOS / Windows / Linux）
 
 ```bash
 npm install
@@ -288,7 +291,7 @@ npx tauri dev
 npx tauri build
 ```
 
-产物位于 `src-tauri/target/release/bundle/`。
+产物位于 `src-tauri/target/release/bundle/`。Linux 还需要 Tauri 系统依赖（如 `libwebkit2gtk-4.1-dev`、`libayatana-appindicator3-dev` / `libappindicator3-dev`、`librsvg2-dev`、`patchelf`），详见 [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/)。CI 在 `ubuntu-22.04` 上为 `x86_64-unknown-linux-gnu` 构建。
 
 也可以使用打包脚本：
 
@@ -323,6 +326,33 @@ export COSKIT_ANDROID_KEY_PASSWORD=your_key_password   # 若与 store password �
 - AAB：`src-tauri/gen/android/app/build/outputs/bundle/universalRelease/app-universal-release.aab`
 
 > 需要自备 keystore 文件，通过 `COSKIT_ANDROID_KEYSTORE=/path/to/your.jks` 指定路径。生成方法：`keytool -genkey -v -keystore your.jks -alias your_alias -keyalg RSA -keysize 2048 -validity 10000`
+>
+> `build_android.sh` 与 `src-tauri/gen/` 均为本地/生成物（已 gitignore）。Release CI 使用同一套 `COSKIT_ANDROID_*` 语义，但密钥来自仓库 Secrets，并在 CI 中执行 `npx tauri android init` + `npx tauri android build --apk --aab`。上传到 Release 的文件名为 `CosKit_<version>_universal.apk` / `.aab`。
+
+### GitHub Release CI
+
+`.github/workflows/build.yml` 在推送 `v*` tag 或手动 `workflow_dispatch` 时构建，并创建/更新同一份 **draft** GitHub Release（`releaseDraft: true`）。
+
+| Job | Runner / target | 产物 |
+|-----|-----------------|------|
+| `Build (macOS-arm64)` | `macos-latest` / `aarch64-apple-darwin` | DMG（tauri-action） |
+| `Build (macOS-x64)` | `macos-latest` / `x86_64-apple-darwin` | DMG（tauri-action） |
+| `Build (Windows-x64)` | `windows-latest` / `x86_64-pc-windows-msvc` | NSIS/MSI + portable exe |
+| `Build (Linux-x64)` | `ubuntu-22.04` / `x86_64-unknown-linux-gnu` | AppImage、deb、rpm（`bundle.targets: "all"`） |
+| `Build (Android)` | `ubuntu-latest`（独立 job） | `CosKit_<version>_universal.apk` / `.aab` |
+
+桌面端矩阵使用 `fail-fast: false`。Android 签名 Secrets 未配置时，**仅 Android job 失败**（`::error` 会列出缺失的 secret 名），不影响 macOS / Windows / Linux。
+
+Android job 需要的仓库 Secrets（Settings → Secrets and variables → Actions；**不要**把 keystore 或密码提交进仓库）：
+
+| Secret | 用途 |
+|--------|------|
+| `ANDROID_KEYSTORE_BASE64` | keystore 的 base64（`base64 -i your.jks`） |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 → `COSKIT_ANDROID_STORE_PASSWORD` |
+| `ANDROID_KEY_ALIAS` | 密钥别名 → `COSKIT_ANDROID_KEY_ALIAS` |
+| `ANDROID_KEY_PASSWORD` | 密钥密码 → `COSKIT_ANDROID_KEY_PASSWORD` |
+
+测试方式：在 Actions 里手动跑 `workflow_dispatch`，或推送下一个 `v*` tag。
 
 ## 技术栈
 
