@@ -24,6 +24,12 @@ jobs:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             label: Windows-x64
+          # ubuntu-22.04 keeps glibc older than ubuntu-latest (24.04).
+          # bundle.targets is "all" in src-tauri/tauri.conf.json, so this
+          # job produces AppImage + deb + rpm for x86_64-unknown-linux-gnu.
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: Linux-x64
 
     runs-on: ${{ matrix.platform }}
     name: Build (${{ matrix.label }})
@@ -31,6 +37,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: startsWith(matrix.platform, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils \
+            libgtk-3-dev \
+            libssl-dev \
+            libxdo-dev \
+            build-essential \
+            file \
+            wget \
+            rpm
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -67,6 +91,8 @@ jobs:
             - **macOS (Intel)**: `CosKit_x.x.x_x64.dmg`
             - **Windows (安装版)**: `CosKit_x.x.x_x64-setup.exe` or `.msi`
             - **Windows (便携版)**: `CosKit_x.x.x_x64_portable.exe`
+            - **Linux (x86_64)**: `CosKit_x.x.x_amd64.AppImage`, `.deb`, and `.rpm` (`bundle.targets: "all"`)
+            - **Android**: `CosKit_x.x.x_universal.apk` / `.aab`
           releaseDraft: true
           prerelease: false
 
@@ -81,3 +107,157 @@ jobs:
           $dst = "CosKit_${version}_x64_portable.exe"
           Copy-Item $src $dst
           gh release upload ${{ github.ref_name }} $dst --clobber
+
+  # Independent of the desktop matrix (fail-fast: false). Missing Android
+  # signing secrets fail only this job; macOS / Windows / Linux still run.
+  android:
+    name: Build (Android)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check Android signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] || missing+=("ANDROID_KEYSTORE_BASE64")
+          [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] || missing+=("ANDROID_KEYSTORE_PASSWORD")
+          [ -n "${ANDROID_KEY_ALIAS:-}" ] || missing+=("ANDROID_KEY_ALIAS")
+          [ -n "${ANDROID_KEY_PASSWORD:-}" ] || missing+=("ANDROID_KEY_PASSWORD")
+          if [ "${#missing[@]}" -ne 0 ]; then
+            echo "::error::Android job failed: missing GitHub Actions secrets: ${missing[*]}. Add them under Settings → Secrets and variables → Actions. Desktop/Linux jobs continue independently."
+            exit 1
+          fi
+          echo "Android signing secrets are present (values not printed)."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+          link-to-sdk: true
+          local-cache: true
+
+      - name: Restore Android NDK symlinks
+        run: |
+          set -euo pipefail
+          directory="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          if [ -d "$directory" ]; then
+            find "$directory" -type l | while read -r link; do
+              current_target="$(readlink "$link")"
+              new_target="$directory/$(basename "$current_target")"
+              if [ -e "$new_target" ]; then
+                ln -sfn "$new_target" "$link"
+              fi
+            done
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install npm dependencies
+        run: npm install
+
+      - name: Init Tauri Android project
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: npx tauri android init
+
+      - name: Configure Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          COSKIT_ANDROID_KEYSTORE: ${{ runner.temp }}/coskit-release.keystore
+        run: python3 .github/scripts/configure-android-signing.py
+
+      - name: Build Android APK and AAB
+        env:
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          COSKIT_ANDROID_KEYSTORE: ${{ runner.temp }}/coskit-release.keystore
+          COSKIT_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          COSKIT_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          COSKIT_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: npx tauri android build --apk --aab --ci
+
+      - name: Package Android artifacts
+        id: package
+        run: |
+          set -euo pipefail
+          version="$(python3 -c "import json; print(json.load(open('src-tauri/tauri.conf.json'))['version'])")"
+          apk="$(find src-tauri/gen/android/app/build/outputs/apk -name '*universal*release*.apk' -print -quit || true)"
+          aab="$(find src-tauri/gen/android/app/build/outputs/bundle -name '*universal*release*.aab' -print -quit || true)"
+          if [ -z "$apk" ]; then
+            apk="$(find src-tauri -name 'app-universal-release.apk' -print -quit || true)"
+          fi
+          if [ -z "$aab" ]; then
+            aab="$(find src-tauri -name 'app-universal-release.aab' -print -quit || true)"
+          fi
+          if [ -z "$apk" ] || [ -z "$aab" ]; then
+            echo "::error::Android build finished but universal APK/AAB was not found."
+            find src-tauri/gen/android/app/build/outputs -type f 2>/dev/null || true
+            exit 1
+          fi
+          apk_name="CosKit_${version}_universal.apk"
+          aab_name="CosKit_${version}_universal.aab"
+          cp "$apk" "$apk_name"
+          cp "$aab" "$aab_name"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "apk=$apk_name" >> "$GITHUB_OUTPUT"
+          echo "aab=$aab_name" >> "$GITHUB_OUTPUT"
+          echo "Packaged $apk_name and $aab_name"
+
+      - name: Upload Android artifacts to draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --draft \
+              --title "CosKit ${tag}" \
+              --notes "Draft release for ${tag}. Desktop/Linux artifacts are uploaded by the matrix jobs."
+          fi
+          gh release upload "$tag" \
+            "${{ steps.package.outputs.apk }}" \
+            "${{ steps.package.outputs.aab }}" \
+            --clobber
+
+      - name: Upload Android workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CosKit-android-universal
+          path: |
+            CosKit_*_universal.apk
+            CosKit_*_universal.aab
+          if-no-files-found: error
