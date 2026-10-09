@@ -21,16 +21,8 @@ pub const QWEN_DEFAULT_TEXT_MODEL: &str = "qwen-vl-max";
 pub const QWEN_DEFAULT_IMAGE_MODEL: &str = "qwen-image-edit";
 pub const QWEN_DEFAULT_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 
-const PERMANENT_ERROR_KEYWORDS: &[&str] = &[
-    "PROHIBITED_CONTENT",
-    "SAFETY",
-    "RECITATION",
-    "BLOCKED",
-    "CONTENT_POLICY",
-    "MODERATION_BLOCKED",
-    "SAFETY_VIOLATIONS",
-    "IMAGE_GENERATION_USER_ERROR",
-];
+const PERMANENT_ERROR_KEYWORDS: &[&str] =
+    &["PROHIBITED_CONTENT", "SAFETY", "RECITATION", "BLOCKED", "CONTENT_POLICY", "MODERATION_BLOCKED", "SAFETY_VIOLATIONS", "IMAGE_GENERATION_USER_ERROR"];
 
 /// Resolve OpenAI base URL: settings → OPENAI_BASE_URL env → default (yunwu.ai).
 pub fn resolve_base_url(settings_url: &str) -> String {
@@ -51,9 +43,7 @@ pub fn resolve_api_key(settings_key: &str) -> String {
     if !s.is_empty() {
         return s.to_string();
     }
-    crate::dotenv::get_env_var("OPENAI_API_KEY")
-        .trim()
-        .to_string()
+    crate::dotenv::get_env_var("OPENAI_API_KEY").trim().to_string()
 }
 
 pub fn resolve_text_model(settings_model: &str) -> String {
@@ -61,7 +51,7 @@ pub fn resolve_text_model(settings_model: &str) -> String {
     if !s.is_empty() {
         return s.to_string();
     }
-    let env_val = crate::dotenv::get_env_var("OPENAI_MODEL");
+    let env_val = std::env::var("OPENAI_MODEL").or_else(|_| std::env::var("OPENAI_LLM_MODEL")).unwrap_or_default();
     let env_trim = env_val.trim();
     if !env_trim.is_empty() {
         return env_trim.to_string();
@@ -106,9 +96,7 @@ pub fn resolve_qwen_api_key(settings_key: &str) -> String {
     if !qwen.trim().is_empty() {
         return qwen.trim().to_string();
     }
-    crate::dotenv::get_env_var("DASHSCOPE_API_KEY")
-        .trim()
-        .to_string()
+    crate::dotenv::get_env_var("DASHSCOPE_API_KEY").trim().to_string()
 }
 
 /// Convert Gemini-style `contents` JSON value into OpenAI chat-completion
@@ -127,11 +115,7 @@ fn gemini_contents_to_openai_messages(contents: &Value) -> Value {
                     }
                     let inline = p.get("inline_data").or_else(|| p.get("inlineData"));
                     if let Some(inl) = inline {
-                        let mime = inl
-                            .get("mime_type")
-                            .or_else(|| inl.get("mimeType"))
-                            .and_then(|m| m.as_str())
-                            .unwrap_or("image/jpeg");
+                        let mime = inl.get("mime_type").or_else(|| inl.get("mimeType")).and_then(|m| m.as_str()).unwrap_or("image/jpeg");
                         if let Some(data) = inl.get("data").and_then(|d| d.as_str()) {
                             let url = format!("data:{};base64,{}", mime, data);
                             user_content.push(json!({
@@ -172,36 +156,20 @@ fn wrap_text_and_image_as_gemini(text: &str, image_b64: &str) -> Value {
     })
 }
 
-async fn post_json_with_retry(
-    client: &reqwest::Client,
-    url: &str,
-    api_key: &str,
-    body: &Value,
-    max_tries: u32,
-) -> Result<Value, String> {
+async fn post_json_with_retry(client: &reqwest::Client, url: &str, api_key: &str, body: &Value, max_tries: u32) -> Result<Value, String> {
     let mut tries = 0u32;
     let mut last_error = String::new();
 
     while tries < max_tries {
-        match client
-            .post(url)
-            .bearer_auth(api_key)
-            .json(body)
-            .send()
-            .await
-        {
+        match client.post(url).bearer_auth(api_key).json(body).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
                 if status.is_success() {
-                    return serde_json::from_str(&text)
-                        .map_err(|e| format!("JSON parse error: {e}"));
+                    return serde_json::from_str(&text).map_err(|e| format!("JSON parse error: {e}"));
                 }
                 let err_upper = text.to_uppercase();
-                if PERMANENT_ERROR_KEYWORDS
-                    .iter()
-                    .any(|kw| err_upper.contains(kw))
-                {
+                if PERMANENT_ERROR_KEYWORDS.iter().any(|kw| err_upper.contains(kw)) {
                     eprintln!("  [openai] permanent error: {text}");
                     return Err(format!("permanent API error: {text}"));
                 }
@@ -217,9 +185,7 @@ async fn post_json_with_retry(
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
     }
 
-    Err(format!(
-        "openai call failed after {max_tries} tries: {last_error}"
-    ))
+    Err(format!("openai call failed after {max_tries} tries: {last_error}"))
 }
 
 /// Call OpenAI chat-completions for a vision/text request. Returns a
@@ -264,10 +230,7 @@ async fn send_image_request(
     mask_bytes: Option<&[u8]>,
 ) -> Result<Value, String> {
     if let Some(bytes) = image_bytes {
-        let part = reqwest::multipart::Part::bytes(bytes.to_vec())
-            .file_name("input.png")
-            .mime_str("image/png")
-            .map_err(|e| e.to_string())?;
+        let part = reqwest::multipart::Part::bytes(bytes.to_vec()).file_name("input.png").mime_str("image/png").map_err(|e| e.to_string())?;
         let mut form = reqwest::multipart::Form::new()
             .text("model", model.to_string())
             .text("prompt", prompt.to_string())
@@ -275,20 +238,11 @@ async fn send_image_request(
             .part("image", part);
 
         if let Some(mask) = mask_bytes {
-            let mask_part = reqwest::multipart::Part::bytes(mask.to_vec())
-                .file_name("mask.png")
-                .mime_str("image/png")
-                .map_err(|e| e.to_string())?;
+            let mask_part = reqwest::multipart::Part::bytes(mask.to_vec()).file_name("mask.png").mime_str("image/png").map_err(|e| e.to_string())?;
             form = form.part("mask", mask_part);
         }
 
-        let resp = client
-            .post(url)
-            .bearer_auth(api_key)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let resp = client.post(url).bearer_auth(api_key).multipart(form).send().await.map_err(|e| e.to_string())?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -301,13 +255,7 @@ async fn send_image_request(
             "prompt": prompt,
             "size": size,
         });
-        let resp = client
-            .post(url)
-            .bearer_auth(api_key)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let resp = client.post(url).bearer_auth(api_key).json(&body).send().await.map_err(|e| e.to_string())?;
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -406,11 +354,7 @@ fn compute_output_size(w: u32, h: u32) -> String {
 
 /// Detect output size from encoded image bytes (fallback when original_size is unavailable).
 fn detect_output_size(image_bytes: &[u8]) -> String {
-    let (w, h) = match image::ImageReader::new(std::io::Cursor::new(image_bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|r| r.into_dimensions().ok())
-    {
+    let (w, h) = match image::ImageReader::new(std::io::Cursor::new(image_bytes)).with_guessed_format().ok().and_then(|r| r.into_dimensions().ok()) {
         Some(dims) => dims,
         None => return "1024x1024".to_string(),
     };
@@ -445,12 +389,7 @@ pub async fn call_image(
                         }
                     }
                     if image_data_b64.is_none() {
-                        if let Some(data) = p
-                            .get("inline_data")
-                            .or_else(|| p.get("inlineData"))
-                            .and_then(|d| d.get("data"))
-                            .and_then(|d| d.as_str())
-                        {
+                        if let Some(data) = p.get("inline_data").or_else(|| p.get("inlineData")).and_then(|d| d.get("data")).and_then(|d| d.as_str()) {
                             image_data_b64 = Some(data.to_string());
                         }
                     }
@@ -460,20 +399,12 @@ pub async fn call_image(
     }
 
     let image_bytes = match image_data_b64 {
-        Some(b64) => Some(
-            base64::engine::general_purpose::STANDARD
-                .decode(b64.as_bytes())
-                .map_err(|e| format!("base64 decode failed: {e}"))?,
-        ),
+        Some(b64) => Some(base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()).map_err(|e| format!("base64 decode failed: {e}"))?),
         None => None,
     };
 
     let mask_bytes = match mask_b64 {
-        Some(b64) => Some(
-            base64::engine::general_purpose::STANDARD
-                .decode(b64.as_bytes())
-                .map_err(|e| format!("mask base64 decode failed: {e}"))?,
-        ),
+        Some(b64) => Some(base64::engine::general_purpose::STANDARD.decode(b64.as_bytes()).map_err(|e| format!("mask base64 decode failed: {e}"))?),
         None => None,
     };
 
@@ -487,9 +418,7 @@ pub async fn call_image(
     };
 
     // Parse the requested canvas size ("WxH").
-    let canvas_wh: Option<(u32, u32)> = size
-        .split_once('x')
-        .and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)));
+    let canvas_wh: Option<(u32, u32)> = size.split_once('x').and_then(|(w, h)| Some((w.parse().ok()?, h.parse().ok()?)));
 
     // Resize the input image to EXACTLY the requested canvas size before
     // uploading. The /16 snapping in compute_output_size slightly changes the
@@ -502,8 +431,7 @@ pub async fn call_image(
         (Some(ib), Some((cw, ch))) => {
             let img = crate::image_utils::load_image_from_bytes(&ib)?;
             if img.width() != cw || img.height() != ch {
-                let resized =
-                    img.resize_exact(cw, ch, image::imageops::FilterType::Lanczos3);
+                let resized = img.resize_exact(cw, ch, image::imageops::FilterType::Lanczos3);
                 Some(crate::image_utils::image_to_png_bytes(&resized)?)
             } else {
                 Some(ib)
@@ -518,8 +446,7 @@ pub async fn call_image(
         (Some(mb), Some((cw, ch))) => {
             let mask = crate::image_utils::load_image_from_bytes(&mb)?;
             if mask.width() != cw || mask.height() != ch {
-                let resized =
-                    mask.resize_exact(cw, ch, image::imageops::FilterType::Lanczos3);
+                let resized = mask.resize_exact(cw, ch, image::imageops::FilterType::Lanczos3);
                 Some(crate::image_utils::image_to_png_bytes(&resized)?)
             } else {
                 Some(mb)
@@ -537,28 +464,10 @@ pub async fn call_image(
     let mut tries = 0u32;
     let mut last_error = String::new();
     while tries < max_tries {
-        match send_image_request(
-            client,
-            &endpoint,
-            api_key,
-            model,
-            &prompt,
-            image_bytes.as_deref(),
-            &size,
-            mask_bytes.as_deref(),
-        )
-        .await
-        {
+        match send_image_request(client, &endpoint, api_key, model, &prompt, image_bytes.as_deref(), &size, mask_bytes.as_deref()).await {
             Ok(resp) => {
-                let first = resp
-                    .get("data")
-                    .and_then(|d| d.as_array())
-                    .and_then(|a| a.first());
-                let b64 = first
-                    .and_then(|x| x.get("b64_json"))
-                    .and_then(|s| s.as_str())
-                    .unwrap_or("")
-                    .to_string();
+                let first = resp.get("data").and_then(|d| d.as_array()).and_then(|a| a.first());
+                let b64 = first.and_then(|x| x.get("b64_json")).and_then(|s| s.as_str()).unwrap_or("").to_string();
                 if !b64.is_empty() {
                     return Ok(wrap_text_and_image_as_gemini("", &b64));
                 }
@@ -567,8 +476,7 @@ pub async fn call_image(
                     match client.get(url).send().await {
                         Ok(r) => match r.bytes().await {
                             Ok(bytes) => {
-                                let encoded =
-                                    base64::engine::general_purpose::STANDARD.encode(&bytes);
+                                let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
                                 return Ok(wrap_text_and_image_as_gemini("", &encoded));
                             }
                             Err(e) => last_error = format!("download image failed: {e}"),
@@ -593,9 +501,7 @@ pub async fn call_image(
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
     }
 
-    Err(format!(
-        "openai image call failed after {max_tries} tries: {last_error}"
-    ))
+    Err(format!("openai image call failed after {max_tries} tries: {last_error}"))
 }
 
 #[allow(dead_code)]
@@ -620,14 +526,8 @@ mod tests {
         assert!(ow <= 3840 && oh <= 3840, "{label}: edge > 3840: {out}");
         assert!(ow >= 256 && oh >= 256, "{label}: edge < 256: {out}");
         let total = (ow as u64) * (oh as u64);
-        assert!(
-            total <= 8_294_400,
-            "{label}: input {w}x{h} → {out} = {total} px exceeds budget 8_294_400"
-        );
-        assert!(
-            total >= 655_360,
-            "{label}: input {w}x{h} → {out} = {total} px below min budget 655_360"
-        );
+        assert!(total <= 8_294_400, "{label}: input {w}x{h} → {out} = {total} px exceeds budget 8_294_400");
+        assert!(total >= 655_360, "{label}: input {w}x{h} → {out} = {total} px below min budget 655_360");
     }
 
     #[test]

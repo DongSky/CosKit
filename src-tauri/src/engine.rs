@@ -20,9 +20,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        Self {
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-        }
+        Self { sessions: Arc::new(RwLock::new(HashMap::new())) }
     }
 }
 
@@ -210,11 +208,7 @@ pub fn switch_branch(session: &mut Session, parent_id: &str, direction: i32) -> 
     }
     let current_child = current_child.unwrap_or_else(|| parent.children[0].clone());
 
-    let idx = parent
-        .children
-        .iter()
-        .position(|c| c == &current_child)
-        .unwrap_or(0);
+    let idx = parent.children.iter().position(|c| c == &current_child).unwrap_or(0);
     let len = parent.children.len() as i32;
     let new_idx = ((idx as i32 + direction) % len + len) % len;
     let new_child = &parent.children[new_idx as usize];
@@ -226,8 +220,10 @@ pub fn switch_branch(session: &mut Session, parent_id: &str, direction: i32) -> 
 }
 
 pub fn goto_node(session: &mut Session, node_id: &str) -> Vec<String> {
-    let leaf = walk_to_leaf(session, node_id);
-    session.active_path = compute_active_path(session, &leaf);
+    if !session.nodes.contains_key(node_id) {
+        return session.active_path.clone();
+    }
+    session.active_path = compute_active_path(session, node_id);
     save_session(session);
     session.active_path.clone()
 }
@@ -260,20 +256,14 @@ pub fn submit_edit(
                 let img = image_utils::load_image_from_bytes(&bytes).ok()?;
                 let thumb = image_utils::resize_max_dimension(&img, 128);
                 let thumb_bytes = image_utils::image_to_jpeg_bytes(&thumb, 75).ok()?;
-                let data_url = format!(
-                    "data:image/jpeg;base64,{}",
-                    image_utils::bytes_to_base64(&thumb_bytes)
-                );
+                let data_url = format!("data:image/jpeg;base64,{}", image_utils::bytes_to_base64(&thumb_bytes));
                 Some(serde_json::json!({
                     "data_url": data_url,
                     "description": r.description,
                 }))
             })
             .collect();
-        node.metadata.insert(
-            "reference_images".to_string(),
-            serde_json::Value::Array(ref_thumbs),
-        );
+        node.metadata.insert("reference_images".to_string(), serde_json::Value::Array(ref_thumbs));
     }
 
     session.nodes.insert(nid.clone(), node.clone());
@@ -289,12 +279,8 @@ pub fn submit_edit(
     save_session(session);
 
     // Gather data for the background task
-    let parent_image_path = session
-        .nodes
-        .get(parent_node_id)
-        .map(|n| n.image_path.clone())
-        .unwrap_or_default();
-    let original_size = session.original_size;
+    let parent_image_path = session.nodes.get(parent_node_id).map(|n| n.image_path.clone()).unwrap_or_default();
+    let original_size = image::image_dimensions(&parent_image_path).unwrap_or(session.original_size);
     let session_id = session_id.to_string();
     let prompt = prompt.to_string();
     let node_id = nid.clone();
@@ -303,18 +289,7 @@ pub fn submit_edit(
     let sessions_arc = Arc::clone(&state.sessions);
 
     tokio::spawn(async move {
-        run_edit_pipeline(
-            sessions_arc,
-            session_id,
-            node_id,
-            parent_image_path,
-            prompt,
-            original_size,
-            modules,
-            reference_images,
-            mask_base64,
-        )
-        .await;
+        run_edit_pipeline(sessions_arc, session_id, node_id, parent_image_path, prompt, original_size, modules, reference_images, mask_base64).await;
     });
 
     Ok(node)
@@ -332,10 +307,7 @@ pub fn submit_beauty_edit(
 ) -> Result<EditNode, String> {
     // Reject unknown/uncompiled providers before creating a node.
     if !crate::beauty_filter::available_providers().contains(&provider) {
-        return Err(format!(
-            "本地美颜后端 {provider} 不可用（当前构建支持: {:?}）",
-            crate::beauty_filter::available_providers()
-        ));
+        return Err(format!("本地美颜后端 {provider} 不可用（当前构建支持: {:?}）", crate::beauty_filter::available_providers()));
     }
 
     let mut sessions = state.sessions.write().map_err(|e| e.to_string())?;
@@ -366,27 +338,14 @@ pub fn submit_beauty_edit(
     session.active_path = compute_active_path(session, &leaf);
     save_session(session);
 
-    let parent_image_path = session
-        .nodes
-        .get(parent_node_id)
-        .map(|n| n.image_path.clone())
-        .unwrap_or_default();
+    let parent_image_path = session.nodes.get(parent_node_id).map(|n| n.image_path.clone()).unwrap_or_default();
     let session_id = session_id.to_string();
     let node_id = nid.clone();
     let provider = provider.to_string();
     let sessions_arc = Arc::clone(&state.sessions);
 
     tokio::spawn(async move {
-        run_beauty_pipeline(
-            sessions_arc,
-            session_id,
-            node_id,
-            parent_image_path,
-            prompt,
-            provider,
-            params,
-        )
-        .await;
+        run_beauty_pipeline(sessions_arc, session_id, node_id, parent_image_path, prompt, provider, params).await;
     });
 
     Ok(node)
@@ -458,17 +417,7 @@ async fn run_beauty_pipeline(
     let img_path_str = img_path.to_string_lossy().to_string();
     let thumb_path_str = thumb_path.to_string_lossy().to_string();
 
-    let layers = build_layer_stack(
-        &sessions,
-        &session_id,
-        &node_id,
-        &parent_image_path,
-        &prompt,
-        None,
-        &sdir,
-        &img_path_str,
-        "",
-    );
+    let layers = build_layer_stack(&sessions, &session_id, &node_id, &parent_image_path, &prompt, None, &sdir, &img_path_str, "");
 
     update_node(&sessions, &session_id, &node_id, |node| {
         node.image_path = img_path_str;
@@ -482,12 +431,7 @@ async fn run_beauty_pipeline(
 }
 
 /// Helper to update a node in the sessions map.
-pub fn update_node(
-    sessions: &RwLock<HashMap<String, Session>>,
-    session_id: &str,
-    node_id: &str,
-    f: impl FnOnce(&mut EditNode),
-) {
+pub fn update_node(sessions: &RwLock<HashMap<String, Session>>, session_id: &str, node_id: &str, f: impl FnOnce(&mut EditNode)) {
     if let Ok(mut lock) = sessions.write() {
         if let Some(session) = lock.get_mut(session_id) {
             if let Some(node) = session.nodes.get_mut(node_id) {
@@ -514,10 +458,7 @@ fn prepare_reference_images(refs: Vec<ReferenceImage>) -> Vec<ReferenceImage> {
             let img = image_utils::load_image_from_bytes(&bytes).ok()?;
             let resized = image_utils::resize_max_dimension(&img, 1024);
             let png_bytes = image_utils::image_to_png_bytes(&resized).ok()?;
-            Some(ReferenceImage {
-                data: image_utils::bytes_to_base64(&png_bytes),
-                description: r.description,
-            })
+            Some(ReferenceImage { data: image_utils::bytes_to_base64(&png_bytes), description: r.description })
         })
         .collect()
 }
@@ -585,10 +526,7 @@ async fn run_edit_pipeline(
     eprintln!("[CosKit] pipeline: prompt={}", prompt);
 
     let result = if modules.agent_mode {
-        eprintln!(
-            "[CosKit] pipeline: entering agent mode (combined={}, save_intermediates={})",
-            modules.combined_mode, modules.save_intermediates
-        );
+        eprintln!("[CosKit] pipeline: entering agent mode (combined={}, save_intermediates={})", modules.combined_mode, modules.save_intermediates);
 
         update_node(&sessions, &session_id, &node_id, |node| {
             node.progress_msg = "正在规划工作流...".to_string();
@@ -621,23 +559,9 @@ async fn run_edit_pipeline(
             Err(e) => Err(format!("规划失败: {e}")),
         }
     } else {
-        eprintln!(
-            "[CosKit] pipeline: entering legacy mode (retouch={}, bg={}, fx={})",
-            modules.retouch, modules.background, modules.effects
-        );
+        eprintln!("[CosKit] pipeline: entering legacy mode (retouch={}, bg={}, fx={})", modules.retouch, modules.background, modules.effects);
         // Legacy modular pipeline
-        run_modular_pipeline(
-            &sessions,
-            &session_id,
-            &node_id,
-            &image_b64,
-            &prompt,
-            original_size,
-            &modules,
-            &references,
-            mask_base64.as_deref(),
-        )
-        .await
+        run_modular_pipeline(&sessions, &session_id, &node_id, &image_b64, &prompt, original_size, &modules, &references, mask_base64.as_deref()).await
     };
 
     match result {
@@ -666,21 +590,14 @@ async fn run_edit_pipeline(
             // transparent selection edges would be blended twice.
             let mut edit_layer_img: Option<image::DynamicImage> = None;
             let result_img = if let Some(ref mask_b64) = mask_base64 {
-                match image_utils::base64_to_bytes(mask_b64)
-                    .and_then(|b| image_utils::load_image_from_bytes(&b))
-                {
+                match image_utils::base64_to_bytes(mask_b64).and_then(|b| image_utils::load_image_from_bytes(&b)) {
                     Ok(mask_img) => {
-                        let mask_resized =
-                            image_utils::resize_to_original(&mask_img, original_size);
-                        let parent_img =
-                            match image_utils::load_image_from_path(&parent_image_path) {
-                                Ok(img) => img,
-                                Err(_) => api_result_img.clone(),
-                            };
-                        edit_layer_img = Some(image_utils::extract_edit_layer(
-                            &api_result_img,
-                            &mask_resized,
-                        ));
+                        let mask_resized = image_utils::resize_to_original(&mask_img, original_size);
+                        let parent_img = match image_utils::load_image_from_path(&parent_image_path) {
+                            Ok(img) => img,
+                            Err(_) => api_result_img.clone(),
+                        };
+                        edit_layer_img = Some(image_utils::extract_edit_layer(&api_result_img, &mask_resized));
                         image_utils::composite_with_mask(&parent_img, &api_result_img, &mask_resized)
                     }
                     Err(e) => {
@@ -722,17 +639,7 @@ async fn run_edit_pipeline(
             // this edit as a new layer on top. Masked edits become a
             // partial-alpha layer cut from the raw result; full edits become
             // an opaque layer pointing at the node's own result image.
-            let layers = build_layer_stack(
-                &sessions,
-                &session_id,
-                &node_id,
-                &parent_image_path,
-                &prompt,
-                edit_layer_img,
-                &sdir,
-                &img_path_str,
-                &mask_path_str,
-            );
+            let layers = build_layer_stack(&sessions, &session_id, &node_id, &parent_image_path, &prompt, edit_layer_img, &sdir, &img_path_str, &mask_path_str);
 
             update_node(&sessions, &session_id, &node_id, |node| {
                 node.image_path = img_path_str;
@@ -773,11 +680,7 @@ async fn run_agent_workflow_with_review(
     let auto_correct = review_settings.review_auto_correct;
     let threshold = review_settings.review_threshold;
 
-    let max_attempts = if review_enabled && auto_correct {
-        1 + review_settings.review_max_retries
-    } else {
-        1
-    };
+    let max_attempts = if review_enabled && auto_correct { 1 + review_settings.review_max_retries } else { 1 };
 
     let review_config = reviewer::ReviewConfig {
         provider: review_settings.review_provider.clone(),
@@ -791,39 +694,15 @@ async fn run_agent_workflow_with_review(
 
     for attempt in 0..max_attempts {
         if attempt > 0 {
-            eprintln!(
-                "[CosKit] review: retry attempt {}/{}",
-                attempt,
-                max_attempts - 1
-            );
+            eprintln!("[CosKit] review: retry attempt {}/{}", attempt, max_attempts - 1);
         }
 
         // Execute workflow (step-by-step or combined)
         let exec_result = if modules.combined_mode {
-            workflow::execute_workflow_combined(
-                sessions,
-                session_id,
-                node_id,
-                image_b64,
-                original_size,
-                &current_plan,
-                references,
-                mask_b64,
-            )
-            .await
+            workflow::execute_workflow_combined(sessions, session_id, node_id, image_b64, original_size, &current_plan, references, mask_b64).await
         } else {
-            workflow::execute_workflow(
-                sessions,
-                session_id,
-                node_id,
-                image_b64,
-                original_size,
-                &current_plan,
-                references,
-                modules.save_intermediates,
-                mask_b64,
-            )
-            .await
+            workflow::execute_workflow(sessions, session_id, node_id, image_b64, original_size, &current_plan, references, modules.save_intermediates, mask_b64)
+                .await
         };
 
         let (result_bytes, note) = match exec_result {
@@ -843,17 +722,7 @@ async fn run_agent_workflow_with_review(
 
         let result_b64 = image_utils::bytes_to_base64(&result_bytes);
 
-        match reviewer::review_image(
-            &review_config,
-            image_b64,
-            &result_b64,
-            prompt,
-            &current_plan,
-            references,
-            threshold,
-        )
-        .await
-        {
+        match reviewer::review_image(&review_config, image_b64, &result_b64, prompt, &current_plan, references, threshold).await {
             Ok(review) => {
                 let review_json = serde_json::to_value(&review).unwrap_or_default();
                 review_history.push(serde_json::json!({
@@ -862,42 +731,21 @@ async fn run_agent_workflow_with_review(
                 }));
 
                 update_node(sessions, session_id, node_id, |n| {
-                    n.metadata.insert(
-                        "review_history".into(),
-                        serde_json::Value::Array(review_history.clone()),
-                    );
+                    n.metadata.insert("review_history".into(), serde_json::Value::Array(review_history.clone()));
                 });
 
                 let is_last = attempt == max_attempts - 1;
                 if review.pass || !auto_correct || is_last {
-                    let final_note = format!(
-                        "{}\n\n审核评分: {:.1}/10{}",
-                        note,
-                        review.overall_score,
-                        if review.pass { "" } else { "（未达标）" }
-                    );
+                    let final_note = format!("{}\n\n审核评分: {:.1}/10{}", note, review.overall_score, if review.pass { "" } else { "（未达标）" });
                     return Ok((result_bytes, final_note));
                 }
 
                 // Re-plan with feedback
                 update_node(sessions, session_id, node_id, |n| {
-                    n.progress_msg = format!(
-                        "审核评分 {:.1}/10，正在优化重试 ({}/{})...",
-                        review.overall_score,
-                        attempt + 1,
-                        max_attempts - 1
-                    );
+                    n.progress_msg = format!("审核评分 {:.1}/10，正在优化重试 ({}/{})...", review.overall_score, attempt + 1, max_attempts - 1);
                 });
 
-                match planner::plan_workflow_with_feedback(
-                    image_b64,
-                    prompt,
-                    references,
-                    &review.feedback,
-                    &review.suggestions,
-                )
-                .await
-                {
+                match planner::plan_workflow_with_feedback(image_b64, prompt, references, &review.feedback, &review.suggestions).await {
                     Ok(new_plan) => {
                         current_plan = new_plan;
                     }
@@ -966,15 +814,11 @@ async fn run_modular_pipeline(
             node.progress_total = total;
             node.progress_msg = "正在分析背景...".to_string();
         });
-        bg_suggestion =
-            gemini_client::analyze_background(image_b64, &scene, prompt, "", references).await?;
+        bg_suggestion = gemini_client::analyze_background(image_b64, &scene, prompt, "", references).await?;
 
         let bg_clone = bg_suggestion.clone();
         update_node(sessions, session_id, node_id, |node| {
-            node.metadata.insert(
-                "bg_suggestion".to_string(),
-                serde_json::Value::String(bg_clone),
-            );
+            node.metadata.insert("bg_suggestion".to_string(), serde_json::Value::String(bg_clone));
         });
     }
 
@@ -988,15 +832,7 @@ async fn run_modular_pipeline(
         });
         // When only background is selected (no retouch), don't pass the user prompt as retouch instruction
         let retouch_prompt = if modules.retouch { prompt } else { "" };
-        let (bytes, retouch_note) = gemini_client::retouch_image(
-            image_b64,
-            retouch_prompt,
-            &bg_suggestion,
-            references,
-            Some(original_size),
-            mask_b64,
-        )
-        .await?;
+        let (bytes, retouch_note) = gemini_client::retouch_image(image_b64, retouch_prompt, &bg_suggestion, references, Some(original_size), mask_b64).await?;
         result_bytes = bytes;
         note = retouch_note;
     }
@@ -1020,16 +856,7 @@ async fn run_modular_pipeline(
             image_b64.to_string()
         };
 
-        match gemini_client::apply_cosplay_effect(
-            &effect_b64,
-            "",
-            prompt,
-            references,
-            Some(original_size),
-            mask_b64,
-        )
-        .await
-        {
+        match gemini_client::apply_cosplay_effect(&effect_b64, "", prompt, references, Some(original_size), mask_b64).await {
             Ok((effect_result, effect_note)) => {
                 result_bytes = effect_result;
                 if note.is_empty() {
@@ -1082,11 +909,7 @@ async fn run_modular_pipeline(
 fn layer_name_from_prompt(prompt: &str, masked: bool) -> String {
     let trimmed = prompt.trim();
     if trimmed.is_empty() {
-        return if masked {
-            "选区编辑".to_string()
-        } else {
-            "全图编辑".to_string()
-        };
+        return if masked { "选区编辑".to_string() } else { "全图编辑".to_string() };
     }
     let name: String = trimmed.chars().take(12).collect();
     if trimmed.chars().count() > 12 {
@@ -1144,9 +967,7 @@ fn build_layer_stack(
         // Full-image edit: the result is the layer content. Copy it so the
         // layer raster stays immutable even if the node image is rewritten
         // by a later recomposite.
-        None => std::fs::copy(result_image_path, &layer_path)
-            .map(|_| ())
-            .map_err(|e| e.to_string()),
+        None => std::fs::copy(result_image_path, &layer_path).map(|_| ()).map_err(|e| e.to_string()),
     };
 
     match saved {
@@ -1161,11 +982,7 @@ fn build_layer_stack(
 }
 
 /// Re-flatten a node's layer stack and repoint the node image at the result.
-pub fn recomposite_node(
-    sessions: &RwLock<HashMap<String, Session>>,
-    session_id: &str,
-    node_id: &str,
-) -> Result<(), String> {
+pub fn recomposite_node(sessions: &RwLock<HashMap<String, Session>>, session_id: &str, node_id: &str) -> Result<(), String> {
     // Snapshot layer metadata under the read lock; file IO happens outside.
     let (layers, thumb_path_existing) = {
         let lock = sessions.read().map_err(|e| e.to_string())?;
@@ -1182,20 +999,12 @@ pub fn recomposite_node(
 
     let mut images = Vec::with_capacity(layers.len());
     for l in &layers {
-        images.push(
-            image_utils::load_image_from_path(&l.image_path)
-                .map_err(|e| format!("图层「{}」加载失败: {e}", l.name))?,
-        );
+        images.push(image_utils::load_image_from_path(&l.image_path).map_err(|e| format!("图层「{}」加载失败: {e}", l.name))?);
     }
     let inputs: Vec<image_utils::LayerInput> = layers
         .iter()
         .zip(images.iter())
-        .map(|(l, img)| image_utils::LayerInput {
-            image: img,
-            opacity: l.opacity,
-            blend_mode: &l.blend_mode,
-            visible: l.visible,
-        })
+        .map(|(l, img)| image_utils::LayerInput { image: img, opacity: l.opacity, blend_mode: &l.blend_mode, visible: l.visible })
         .collect();
     let flat = image_utils::composite_layers(&inputs)?;
 
@@ -1203,13 +1012,7 @@ pub fn recomposite_node(
     let flat_path = sdir.join(format!("flat_{node_id}.png"));
     image_utils::save_png(&flat, &flat_path)?;
 
-    let thumb_path = if thumb_path_existing.is_empty() {
-        sdir.join(format!("{node_id}_thumb.jpg"))
-            .to_string_lossy()
-            .to_string()
-    } else {
-        thumb_path_existing
-    };
+    let thumb_path = if thumb_path_existing.is_empty() { sdir.join(format!("{node_id}_thumb.jpg")).to_string_lossy().to_string() } else { thumb_path_existing };
     let _ = image_utils::make_thumbnail(&flat, std::path::Path::new(&thumb_path));
 
     let flat_path_str = flat_path.to_string_lossy().to_string();
@@ -1222,12 +1025,7 @@ pub fn recomposite_node(
 }
 
 /// Run a mutation on a node's layer stack, then re-flatten and persist.
-pub fn modify_layers<F>(
-    sessions: &RwLock<HashMap<String, Session>>,
-    session_id: &str,
-    node_id: &str,
-    f: F,
-) -> Result<(), String>
+pub fn modify_layers<F>(sessions: &RwLock<HashMap<String, Session>>, session_id: &str, node_id: &str, f: F) -> Result<(), String>
 where
     F: FnOnce(&mut Vec<Layer>) -> Result<(), String>,
 {

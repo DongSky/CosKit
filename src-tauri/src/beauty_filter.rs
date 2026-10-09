@@ -16,13 +16,7 @@ pub trait BeautyFilter: Send + Sync {
     fn init(&mut self) -> Result<(), String>;
 
     /// Apply beauty effect to an RGBA image, returning RGBA bytes
-    fn apply(
-        &mut self,
-        input: &[u8],
-        width: u32,
-        height: u32,
-        params: &BeautyParams,
-    ) -> Result<Vec<u8>, String>;
+    fn apply(&mut self, input: &[u8], width: u32, height: u32, params: &BeautyParams) -> Result<Vec<u8>, String>;
 
     /// Release resources
     fn destroy(&mut self);
@@ -164,27 +158,12 @@ fn worker_sender() -> &'static mpsc::Sender<BeautyJob> {
 
 /// Run a beauty filter on the shared GL worker thread (blocking).
 /// Call from `tokio::task::spawn_blocking` in async contexts.
-pub fn process_blocking(
-    provider: &str,
-    params: &BeautyParams,
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-) -> Result<Vec<u8>, String> {
+pub fn process_blocking(provider: &str, params: &BeautyParams, rgba: Vec<u8>, width: u32, height: u32) -> Result<Vec<u8>, String> {
     let (reply_tx, reply_rx) = mpsc::channel();
     worker_sender()
-        .send(BeautyJob {
-            provider: provider.to_string(),
-            params: params.clone(),
-            rgba,
-            width,
-            height,
-            reply: reply_tx,
-        })
+        .send(BeautyJob { provider: provider.to_string(), params: params.clone(), rgba, width, height, reply: reply_tx })
         .map_err(|_| "beauty worker unavailable".to_string())?;
-    reply_rx
-        .recv()
-        .map_err(|_| "beauty worker dropped reply".to_string())?
+    reply_rx.recv().map_err(|_| "beauty worker dropped reply".to_string())?
 }
 
 #[cfg(test)]
@@ -197,9 +176,7 @@ mod tests {
         assert_eq!(p.whitening, 0.0);
         assert!(p.face_reshape.is_none());
 
-        let p: BeautyParams =
-            serde_json::from_str(r#"{"whitening":0.5,"face_reshape":{"face_thinning":0.3}}"#)
-                .unwrap();
+        let p: BeautyParams = serde_json::from_str(r#"{"whitening":0.5,"face_reshape":{"face_thinning":0.3}}"#).unwrap();
         assert_eq!(p.whitening, 0.5);
         assert_eq!(p.face_reshape.unwrap().face_thinning, 0.3);
     }

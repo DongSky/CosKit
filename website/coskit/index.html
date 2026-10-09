@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark"><meta name="theme-color" content="#060a07">
+  <title>CosKit — 对话与画笔，同一张画布 | prts.si</title>
+  <meta name="description" content="CosKit 1.0.0：开源 Cosplay 照片后期工作台。自主对话修图、完整原生编辑、精确笔刷、可回退的 CKPipe 工程。">
+  <meta property="og:title" content="CosKit 1.0.0 — 对话与画笔，同一张画布">
+  <meta property="og:description" content="从一句目标到可编辑的成片。第一个正式版本。">
+  <meta property="og:image" content="https://prts.si/coskit/media/social-card.jpg">
+  <link rel="canonical" href="https://prts.si/coskit/"><link rel="stylesheet" href="coskit.css">
+  <script src="coskit.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">跳到内容</a>
+<header class="mast"><div class="mast-inner">
+  <a class="brand" href="https://prts.si/">&gt; PRTS<span>.si</span></a><span class="slash">/</span><a class="current" href="#">coskit</a>
+  <nav aria-label="页面导航"><a href="#compare">修图对比</a><a href="#workflow">工作流</a><a href="#tutorial">入门教程</a><a href="#download">获取应用 ↗</a></nav>
+</div></header>
+<main id="main">
+<section class="hero wrap">
+  <div class="eyebrow"><span class="dot"></span> PROJECT / COSKIT <span class="tag">v1.0.0 · FIRST STABLE</span></div>
+  <div class="hero-grid"><div><h1>对话与画笔，<br>同一张<span>画布。</span><b class="cursor" aria-hidden="true">_</b></h1>
+  <p class="lead">把后期的想法说出来，再亲手打磨每一个细节。<br>为 Cosplay 创作准备的开源图像工作台。</p>
+  <div class="actions"><a class="button primary" href="#download">获取 CosKit <span>↓</span></a><a class="button" href="#tutorial">观看新手教程 <span>▶</span></a></div></div>
+  <aside class="terminal" aria-label="版本信息"><div class="terminal-bar"><i></i><i></i><i></i><span>release / manifest</span></div><p><span class="green">&gt;</span> coskit --version</p><strong>1.0.0 <span class="green">[STABLE]</span></strong><dl><div><dt>PLATFORM</dt><dd>Windows x64</dd></div><div><dt>WORKSPACE</dt><dd>Rust · egui · wgpu</dd></div><div><dt>PROJECT</dt><dd>.ckpipe / layers + history</dd></div><div><dt>LICENSE</dt><dd>MIT / 第三方许可保留</dd></div></dl><p class="muted">你的判断，始终在工作流里。</p></aside></div>
+  <figure class="workspace"><div class="frame-label"><span>01 / THE WORKSPACE</span><span>真实软件截图 · 原生桌面工作台</span></div><img src="media/workspace.webp" alt="CosKit 原生工作台，花间人像、AI 对话侧栏和底部版本条" width="1600" height="880" fetchpriority="high"><figcaption><span>FLUENT WORKSPACE</span> 中性画布 · 可组合侧栏 · 缩略图版本条</figcaption></figure>
+</section>
+<section class="section wrap" id="compare">
+  <div class="section-head"><div><p class="eyebrow">02 / FROM INTENT TO IMAGE</p><h2>让结果自己说话。</h2></div><p>同一张照片，同一个尺寸。<br>拖动分界线，比较原片与本次演示成片。</p></div>
+  <div class="comparison" style="--split:50%"><img src="media/before.webp" alt="修图前：花树下的 Cosplay 人像" width="1620" height="1080" loading="lazy"><img class="after" src="media/after.webp" alt="修图后：更通透的肤色与白衣、柔和层次和克制的氛围光" width="1620" height="1080" loading="lazy"><div class="divider" aria-hidden="true"><span>↔</span></div><span class="image-label before-label">BEFORE / 原片</span><span class="image-label after-label">AFTER / 演示成片</span><input id="compare-range" type="range" min="0" max="100" value="50" aria-label="修图前后分界位置" aria-valuetext="原片与成片各显示一半"></div>
+  <div class="compare-controls"><span>← 原片</span><label for="compare-range">拖动或使用方向键 · <output id="compare-value">50%</output></label><span>成片 →</span></div>
+  <div class="prompt"><span class="green">USER &gt;</span><p>清新、通透的花间人像。改善人物与白衣的层次，保留肤质、发丝、花朵和身份，不改变构图。</p><span class="tag">目标由你定 · 步骤由模型分析</span></div>
+  <p class="note">本页展示一次实际修图，不代表每次模型输出都相同。演示成片包含效果检查与独立图层上的笔刷收尾；详细过程见下方教程。</p>
+</section>
+<section class="section wrap" id="workflow">
+  <div class="section-head"><div><p class="eyebrow">03 / ONE CONTINUOUS WORKFLOW</p><h2>从一句目标，到可继续编辑。</h2></div><p>AI 与基础编辑共享工程。<br>保留图层，也保留作出选择的过程。</p></div>
+  <div class="features">
+    <article class="feature"><div class="feature-top"><span>01 / REASON + REVIEW</span><span class="green">↗</span></div><h3>会执行，也会检查。</h3><p>Harness 自主观察、发现 MCP 工具、执行并验收。可请求原尺寸局部检查；发现问题时回退并调整方案。</p><img src="media/ai-review.webp" alt="AI 对话与实际修图审核结果" width="1600" height="880" loading="lazy"></article>
+    <article class="feature"><div class="feature-top"><span>02 / LOCAL CONTROL</span><span class="green">↗</span></div><h3>最后一笔，仍然交给你。</h3><p>选区、蒙版、图层、曲线和修复工具，加上发丝、光影、氛围笔刷。MCP 可精确设置轨迹、压力与流量。</p><img src="media/brush.webp" alt="在独立图层上绘制柔和氛围光" width="1600" height="880" loading="lazy"></article>
+    <article class="feature"><div class="feature-top"><span>03 / REPLAYABLE PROJECT</span><span class="green">↗</span></div><h3>把尝试也保存下来。</h3><p>CKPipe 保存图层、参数、对话和可回退版本。用可视化参数调整配方，再从指定基准生成新分支。</p><img src="media/parameters.webp" alt="可视化曲线参数和版本记录" width="1600" height="880" loading="lazy"></article>
+    <article class="feature"><div class="feature-top"><span>04 / LOOK CLOSER</span><span class="green">↗</span></div><h3>细节，不只看缩略图。</h3><p>版本同步缩放、原尺寸对比、200% 放大与差异图。浏览对比保持当前画布和工程记录不变。</p><img src="media/detail.webp" alt="人物发丝和脸部的原尺寸版本对比" width="1600" height="880" loading="lazy"></article>
+  </div>
+</section>
+<section class="section wrap" id="tutorial">
+  <div class="section-head"><div><p class="eyebrow">04 / START HERE</p><h2>看一次，就能开始。</h2></div><p>功能介绍 + 新手操作教程<br>真实窗口录制 · 中文旁白 · 中英字幕</p></div>
+  <div class="video-frame"><video controls playsinline preload="metadata" poster="media/tutorial-poster.jpg" aria-label="CosKit 1.0.0 功能介绍与新手教程"><source src="media/coskit-tutorial.mp4" type="video/mp4"><track kind="subtitles" src="media/tutorial.zh.vtt" srclang="zh-CN" label="简体中文"><track kind="subtitles" src="media/tutorial.en.vtt" srclang="en" label="English"><p>浏览器不支持视频，请<a href="media/coskit-tutorial.mp4">下载 MP4</a>。</p></video></div>
+  <p class="note">录屏通过原生窗口帧采集，由本地 MCP 驱动实际编辑器；教程压缩了等待过程，画面会标示加速。旁白为合成语音。</p>
+  <ol class="steps"><li><span>01</span><div><h3>打开照片，保存基准</h3><p>先保存为 .ckpipe，给起始版本命名。</p></div></li><li><span>02</span><div><h3>描述目标，检查结果</h3><p>配置自己的视觉模型，只描述希望达到的效果。</p></div></li><li><span>03</span><div><h3>局部收尾，另存导出</h3><p>独立图层画光影，比较细节，再导出 PNG/JPEG。</p></div></li></ol>
+</section>
+<section class="section wrap" id="download">
+  <div class="section-head"><div><p class="eyebrow">05 / INSTALL + BUILD</p><h2>从这里开始创作。</h2></div><span class="tag">v1.0.0 / 第一个正式版本</span></div>
+  <div class="download-grid"><article class="panel"><h3>Windows x64</h3><p>提供安装版与便携 ZIP。便携版解压后运行 coskit.exe；基础编辑无需配置模型。</p><a class="button primary" href="https://github.com/DongSky/CosKit/releases" target="_blank" rel="noopener">查看发行页 <span>↗</span></a><p class="note">文件名：CosKit_1.0.0_x64-setup.exe<br>CosKit_1.0.0_x64_portable.zip<br>以发行页实际提供的附件为准。</p></article><article class="panel"><h3>从源码构建</h3><p>Rust 1.95+ · Node.js 20+ · Python 3<br>Windows 需 C++ Build Tools；打包另需 NSIS。</p><div class="code"><button id="copy-build" type="button" aria-label="复制构建命令">复制</button><pre id="build-code">git clone https://github.com/DongSky/CosKit.git
+cd CosKit
+npm run build</pre></div><a class="text-link" href="https://github.com/DongSky/CosKit#readme" target="_blank" rel="noopener">阅读完整安装与模型配置说明 ↗</a><span id="copy-status" role="status" aria-live="polite"></span></article></div>
+  <div class="roadmap"><span class="eyebrow">NEXT / TODO</span><p><span class="status pending">○ PLANNED</span> Android</p><p><span class="status pending">○ EXPLORING</span> 更多新功能：工作流、笔刷与创作体验</p></div>
+</section>
+<section class="section wrap credits" id="credits"><p class="eyebrow">06 / BUILT WITH GRATITUDE</p><h2>独立生长，也感谢同行。</h2><p>CosKit v0.1.x 预览版和对话修图先独立完成。v1.0 在此基础上整合 PhotoCraft 的原生编辑器，补齐基础图像编辑，并发展自主 Harness、MCP、CKPipe 和新的创作工作台。</p><p>感谢 <a href="https://github.com/storytold/photocraft">PhotoCraft、ArtCraft Team 与贡献者</a>，感谢 David Revoy 的 CC0 笔刷，以及 egui、wgpu 和其他开源依赖。完整来源与许可证见 <a href="https://github.com/DongSky/CosKit/blob/main/ACKNOWLEDGEMENTS.md">致谢</a>。</p><div class="support"><span>支持后续开发</span><a href="https://space.bilibili.com/886169">B 站充电 ↗</a><a href="https://ifdian.net/a/dongsky">爱发电 ↗</a><a href="https://github.com/sponsors/DongSky">GitHub Sponsors ↗</a><a href="https://github.com/DongSky/CosKit">Star / Issue / PR ↗</a></div></section>
+</main><footer class="wrap"><span>prts.si // CosKit · 2026</span><a href="https://prts.si/">cd .. / 返回个人终端</a><span>OPEN SOURCE · MADE FOR CREATORS</span></footer>
+</body></html>

@@ -32,6 +32,13 @@ pub fn load_dotenv(path: &Path) {
 ///   3. exe parent directory
 ///   4. $HOME/.env
 pub fn load_dotenv_files() {
+    // Development launch from the app, src-tauri, or the two-reference workspace.
+    #[cfg(debug_assertions)]
+    if let Ok(cwd) = std::env::current_dir() {
+        for dir in cwd.ancestors().take(3) {
+            load_dotenv(&dir.join(".env"));
+        }
+    }
     // 1. Data dir
     let data_dir = crate::settings::data_dir();
     load_dotenv(&data_dir.join(".env"));

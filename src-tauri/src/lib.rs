@@ -1,4 +1,5 @@
 mod commands;
+pub mod local_edit;
 pub mod beauty_filter;
 #[cfg(feature = "gpupixel")]
 pub mod beauty_gpupixel;
@@ -65,6 +66,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            local_edit::apply_local_edit,
             commands::pick_image,
             commands::create_session,
             commands::get_session,

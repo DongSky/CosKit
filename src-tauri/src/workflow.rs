@@ -36,10 +36,7 @@ pub async fn execute_workflow(
     // Initialize workflow status for all nodes
     let mut wf_status: HashMap<String, serde_json::Value> = HashMap::new();
     for pn in &plan.nodes {
-        let skill_name = registry
-            .get(&pn.skill_id)
-            .map(|s| s.name.as_str())
-            .unwrap_or("未知");
+        let skill_name = registry.get(&pn.skill_id).map(|s| s.name.as_str()).unwrap_or("未知");
         wf_status.insert(
             pn.node_id.clone(),
             json!({
@@ -52,23 +49,15 @@ pub async fn execute_workflow(
     update_workflow_status(sessions, session_id, node_id, &wf_status);
 
     // Track completed node outputs: node_id -> image bytes
-    let outputs: Arc<tokio::sync::RwLock<HashMap<String, Vec<u8>>>> =
-        Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+    let outputs: Arc<tokio::sync::RwLock<HashMap<String, Vec<u8>>>> = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let mut completed: HashSet<String> = HashSet::new();
     let mut steps_done = 0u32;
 
     // Topological execution loop
     loop {
         // Find ready nodes: all deps satisfied, not yet completed
-        let ready: Vec<_> = plan
-            .nodes
-            .iter()
-            .filter(|pn| {
-                !completed.contains(&pn.node_id)
-                    && pn.depends_on.iter().all(|d| completed.contains(d))
-            })
-            .cloned()
-            .collect();
+        let ready: Vec<_> =
+            plan.nodes.iter().filter(|pn| !completed.contains(&pn.node_id) && pn.depends_on.iter().all(|d| completed.contains(d))).cloned().collect();
 
         if ready.is_empty() {
             if completed.len() < plan.nodes.len() {
@@ -77,14 +66,7 @@ pub async fn execute_workflow(
             break;
         }
 
-        eprintln!(
-            "[CosKit] workflow: batch ready [{}]",
-            ready
-                .iter()
-                .map(|pn| format!("{}({})", pn.node_id, pn.skill_id))
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        eprintln!("[CosKit] workflow: batch ready [{}]", ready.iter().map(|pn| format!("{}({})", pn.node_id, pn.skill_id)).collect::<Vec<_>>().join(", "));
 
         // Mark ready nodes as running
         for pn in &ready {
@@ -96,14 +78,8 @@ pub async fn execute_workflow(
 
         engine::update_node(sessions, session_id, node_id, |n| {
             n.progress_step = steps_done;
-            n.progress_msg = format!(
-                "执行中: {}",
-                ready
-                    .iter()
-                    .filter_map(|pn| registry.get(&pn.skill_id).map(|s| s.name.as_str()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+            n.progress_msg =
+                format!("执行中: {}", ready.iter().filter_map(|pn| registry.get(&pn.skill_id).map(|s| s.name.as_str())).collect::<Vec<_>>().join(", "));
         });
 
         // Execute ready nodes in parallel
@@ -127,9 +103,7 @@ pub async fn execute_workflow(
             };
 
             // Fill prompt template
-            let prompt = skill
-                .prompt_template
-                .replace("{{SKILL_PROMPT}}", &pn.skill_prompt);
+            let prompt = skill.prompt_template.replace("{{SKILL_PROMPT}}", &pn.skill_prompt);
 
             let refs = references.to_vec();
             let temp = skill.default_temperature;
@@ -138,15 +112,7 @@ pub async fn execute_workflow(
             let mask_owned = mask_b64.map(|s| s.to_string());
 
             let handle = tokio::spawn(async move {
-                let result = gemini_client::call_image_generation(
-                    &input_b64,
-                    &prompt,
-                    &refs,
-                    temp,
-                    Some(original_size),
-                    mask_owned.as_deref(),
-                )
-                .await;
+                let result = gemini_client::call_image_generation(&input_b64, &prompt, &refs, temp, Some(original_size), mask_owned.as_deref()).await;
                 match result {
                     Ok(bytes) => {
                         outputs_clone.write().await.insert(pn_id.clone(), bytes);
@@ -181,32 +147,14 @@ pub async fn execute_workflow(
                                     let sdir = crate::settings::data_dir().join(session_id);
                                     let outs = outputs.read().await;
                                     if let Some(node_bytes) = outs.get(&pn_id) {
-                                        if let Ok(img) =
-                                            image_utils::load_image_from_bytes(node_bytes)
-                                        {
-                                            let resized = image_utils::resize_to_original(
-                                                &img,
-                                                original_size,
-                                            );
-                                            let img_path = sdir.join(format!(
-                                                "intermediate_{}_{}.png",
-                                                node_id, pn_id
-                                            ));
-                                            let thumb_path = sdir.join(format!(
-                                                "intermediate_{}_{}_thumb.jpg",
-                                                node_id, pn_id
-                                            ));
-                                            if image_utils::save_png(&resized, &img_path)
-                                                .is_ok()
-                                            {
-                                                let _ = image_utils::make_thumbnail(
-                                                    &resized,
-                                                    &thumb_path,
-                                                );
-                                                st["image_path"] =
-                                                    json!(img_path.to_string_lossy().to_string());
-                                                st["thumbnail_path"] =
-                                                    json!(thumb_path.to_string_lossy().to_string());
+                                        if let Ok(img) = image_utils::load_image_from_bytes(node_bytes) {
+                                            let resized = image_utils::resize_to_original(&img, original_size);
+                                            let img_path = sdir.join(format!("intermediate_{}_{}.png", node_id, pn_id));
+                                            let thumb_path = sdir.join(format!("intermediate_{}_{}_thumb.jpg", node_id, pn_id));
+                                            if image_utils::save_png(&resized, &img_path).is_ok() {
+                                                let _ = image_utils::make_thumbnail(&resized, &thumb_path);
+                                                st["image_path"] = json!(img_path.to_string_lossy().to_string());
+                                                st["thumbnail_path"] = json!(thumb_path.to_string_lossy().to_string());
                                             }
                                         }
                                     }
@@ -234,30 +182,16 @@ pub async fn execute_workflow(
 
     // Find the final output: last node in plan (the "sink" node)
     // Prefer the last node that has no downstream dependents
-    let all_deps: HashSet<&str> = plan
-        .nodes
-        .iter()
-        .flat_map(|pn| pn.depends_on.iter().map(|s| s.as_str()))
-        .collect();
-    let sink_nodes: Vec<&str> = plan
-        .nodes
-        .iter()
-        .filter(|pn| !all_deps.contains(pn.node_id.as_str()))
-        .map(|pn| pn.node_id.as_str())
-        .collect();
+    let all_deps: HashSet<&str> = plan.nodes.iter().flat_map(|pn| pn.depends_on.iter().map(|s| s.as_str())).collect();
+    let sink_nodes: Vec<&str> = plan.nodes.iter().filter(|pn| !all_deps.contains(pn.node_id.as_str())).map(|pn| pn.node_id.as_str()).collect();
 
     let fallback_node_id = plan.nodes.last().map(|n| n.node_id.as_str());
     let final_node_id = sink_nodes.last().copied().or(fallback_node_id);
-    eprintln!(
-        "[CosKit] workflow: sink nodes={:?}, selected={:?}",
-        sink_nodes, final_node_id
-    );
+    eprintln!("[CosKit] workflow: sink nodes={:?}, selected={:?}", sink_nodes, final_node_id);
 
     let outs = outputs.read().await;
     let final_bytes = if let Some(fid) = final_node_id {
-        outs.get(fid)
-            .cloned()
-            .unwrap_or_else(|| image_utils::base64_to_bytes(parent_image_b64).unwrap_or_default())
+        outs.get(fid).cloned().unwrap_or_else(|| image_utils::base64_to_bytes(parent_image_b64).unwrap_or_default())
     } else {
         image_utils::base64_to_bytes(parent_image_b64).unwrap_or_default()
     };
@@ -272,9 +206,7 @@ fn merge_plan_into_single_prompt(plan: &WorkflowPlan) -> String {
 
     for (i, pn) in plan.nodes.iter().enumerate() {
         if let Some(skill) = registry.get(&pn.skill_id) {
-            let filled = skill
-                .prompt_template
-                .replace("{{SKILL_PROMPT}}", &pn.skill_prompt);
+            let filled = skill.prompt_template.replace("{{SKILL_PROMPT}}", &pn.skill_prompt);
             sections.push(format!("【步骤 {} - {}】\n{}", i + 1, skill.name, filled));
         }
     }
@@ -313,10 +245,7 @@ pub async fn execute_workflow_combined(
     // Initialize workflow status — all nodes at once
     let mut wf_status: HashMap<String, serde_json::Value> = HashMap::new();
     for pn in &plan.nodes {
-        let skill_name = registry
-            .get(&pn.skill_id)
-            .map(|s| s.name.as_str())
-            .unwrap_or("未知");
+        let skill_name = registry.get(&pn.skill_id).map(|s| s.name.as_str()).unwrap_or("未知");
         wf_status.insert(
             pn.node_id.clone(),
             json!({
@@ -337,11 +266,7 @@ pub async fn execute_workflow_combined(
     let combined_prompt = merge_plan_into_single_prompt(plan);
 
     let avg_temp: f64 = {
-        let temps: Vec<f64> = plan
-            .nodes
-            .iter()
-            .filter_map(|pn| registry.get(&pn.skill_id).map(|s| s.default_temperature))
-            .collect();
+        let temps: Vec<f64> = plan.nodes.iter().filter_map(|pn| registry.get(&pn.skill_id).map(|s| s.default_temperature)).collect();
         if temps.is_empty() {
             0.35
         } else {
@@ -349,15 +274,7 @@ pub async fn execute_workflow_combined(
         }
     };
 
-    let result = gemini_client::call_image_generation(
-        parent_image_b64,
-        &combined_prompt,
-        references,
-        avg_temp,
-        Some(original_size),
-        mask_b64,
-    )
-    .await;
+    let result = gemini_client::call_image_generation(parent_image_b64, &combined_prompt, references, avg_temp, Some(original_size), mask_b64).await;
 
     match result {
         Ok(bytes) => {
@@ -386,16 +303,10 @@ pub async fn execute_workflow_combined(
     }
 }
 
-fn update_workflow_status(
-    sessions: &RwLock<HashMap<String, Session>>,
-    session_id: &str,
-    node_id: &str,
-    wf_status: &HashMap<String, serde_json::Value>,
-) {
+fn update_workflow_status(sessions: &RwLock<HashMap<String, Session>>, session_id: &str, node_id: &str, wf_status: &HashMap<String, serde_json::Value>) {
     let status_val = json!(wf_status);
     engine::update_node(sessions, session_id, node_id, |n| {
-        n.metadata
-            .insert("workflow_status".into(), status_val.clone());
+        n.metadata.insert("workflow_status".into(), status_val.clone());
     });
     engine::save_session_from_map(sessions, session_id);
 }
@@ -415,16 +326,8 @@ mod tests {
     }
 
     fn find_sink_nodes(plan: &WorkflowPlan) -> Vec<String> {
-        let all_deps: HashSet<&str> = plan
-            .nodes
-            .iter()
-            .flat_map(|pn| pn.depends_on.iter().map(|s| s.as_str()))
-            .collect();
-        plan.nodes
-            .iter()
-            .filter(|pn| !all_deps.contains(pn.node_id.as_str()))
-            .map(|pn| pn.node_id.clone())
-            .collect()
+        let all_deps: HashSet<&str> = plan.nodes.iter().flat_map(|pn| pn.depends_on.iter().map(|s| s.as_str())).collect();
+        plan.nodes.iter().filter(|pn| !all_deps.contains(pn.node_id.as_str())).map(|pn| pn.node_id.clone()).collect()
     }
 
     #[test]
@@ -432,11 +335,7 @@ mod tests {
         // step_1 -> step_2 -> step_3: only step_3 is sink
         let plan = WorkflowPlan {
             reasoning: "test".into(),
-            nodes: vec![
-                make_node("step_1", vec![]),
-                make_node("step_2", vec!["step_1"]),
-                make_node("step_3", vec!["step_2"]),
-            ],
+            nodes: vec![make_node("step_1", vec![]), make_node("step_2", vec!["step_1"]), make_node("step_3", vec!["step_2"])],
         };
         assert_eq!(find_sink_nodes(&plan), vec!["step_3"]);
     }
@@ -446,11 +345,7 @@ mod tests {
         // step_1 and step_2 parallel, step_3 depends on both
         let plan = WorkflowPlan {
             reasoning: "test".into(),
-            nodes: vec![
-                make_node("step_1", vec![]),
-                make_node("step_2", vec![]),
-                make_node("step_3", vec!["step_1", "step_2"]),
-            ],
+            nodes: vec![make_node("step_1", vec![]), make_node("step_2", vec![]), make_node("step_3", vec!["step_1", "step_2"])],
         };
         assert_eq!(find_sink_nodes(&plan), vec!["step_3"]);
     }
@@ -460,21 +355,14 @@ mod tests {
         // step_1 -> step_2, step_1 -> step_3: two sinks
         let plan = WorkflowPlan {
             reasoning: "test".into(),
-            nodes: vec![
-                make_node("step_1", vec![]),
-                make_node("step_2", vec!["step_1"]),
-                make_node("step_3", vec!["step_1"]),
-            ],
+            nodes: vec![make_node("step_1", vec![]), make_node("step_2", vec!["step_1"]), make_node("step_3", vec!["step_1"])],
         };
         assert_eq!(find_sink_nodes(&plan), vec!["step_2", "step_3"]);
     }
 
     #[test]
     fn sink_node_single_step() {
-        let plan = WorkflowPlan {
-            reasoning: "test".into(),
-            nodes: vec![make_node("step_1", vec![])],
-        };
+        let plan = WorkflowPlan { reasoning: "test".into(), nodes: vec![make_node("step_1", vec![])] };
         assert_eq!(find_sink_nodes(&plan), vec!["step_1"]);
     }
 
@@ -489,36 +377,28 @@ mod tests {
 
         // Load example image
         let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let img_bytes =
-            std::fs::read(manifest.join("../example.jpg")).expect("example.jpg not found");
+        let img_bytes = std::fs::read(manifest.join("../example.jpg")).expect("example.jpg not found");
         let img = image_utils::load_image_from_bytes(&img_bytes).expect("load image");
         let original_size = (img.width(), img.height());
         let png_bytes = image_utils::image_to_png_bytes(&img).expect("encode png");
         let image_b64 = image_utils::bytes_to_base64(&png_bytes);
 
         // Load prompt
-        let prompt = std::fs::read_to_string(manifest.join("../example.txt"))
-            .expect("example.txt not found");
+        let prompt = std::fs::read_to_string(manifest.join("../example.txt")).expect("example.txt not found");
         let prompt = prompt.trim();
 
         // Step 1: Plan
         eprintln!("=== Planning ===");
-        let plan = planner::plan_workflow(&image_b64, prompt, &[])
-            .await
-            .expect("planning failed");
+        let plan = planner::plan_workflow(&image_b64, prompt, &[]).await.expect("planning failed");
         eprintln!("Reasoning: {}", plan.reasoning);
         for n in &plan.nodes {
-            eprintln!(
-                "  {} -> {} (deps: {:?})",
-                n.node_id, n.skill_id, n.depends_on
-            );
+            eprintln!("  {} -> {} (deps: {:?})", n.node_id, n.skill_id, n.depends_on);
         }
         assert!(!plan.nodes.is_empty(), "plan should have at least one step");
 
         // Step 2: Execute workflow
         eprintln!("=== Executing ===");
-        let sessions =
-            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let sessions = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
 
         let sid = "integration_test";
         let nid = "test_node";
@@ -531,18 +411,7 @@ mod tests {
         session.nodes.insert(nid.into(), node);
         sessions.write().unwrap().insert(sid.into(), session);
 
-        let result = super::execute_workflow(
-            &sessions,
-            sid,
-            nid,
-            &image_b64,
-            original_size,
-            &plan,
-            &[],
-            false,
-            None,
-        )
-        .await;
+        let result = super::execute_workflow(&sessions, sid, nid, &image_b64, original_size, &plan, &[], false, None).await;
 
         match result {
             Ok((bytes, note)) => {

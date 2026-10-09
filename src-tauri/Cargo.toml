@@ -1,6 +1,6 @@
 [package]
 name = "coskit"
-version = "0.1.5"
+version = "1.0.0-beta.1"
 edition = "2021"
 
 [lib]
@@ -26,6 +26,7 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 rand = "0.8"
 sha2 = "0.10"
+photocraft-retouch = { path = "vendor/photocraft-retouch" }
 
 # Beauty filter providers (optional)
 gpupixel-sys = { path = "vendor/gpupixel-sys", optional = true }

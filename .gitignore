@@ -1,6 +1,10 @@
 # Build artifacts
 /src-tauri/target/
+**/target/
+/native/target-release/
+/native/target-wasm/
 /node_modules/
+/.dev-data/
 dist/
 build/
 .gradle/
@@ -54,7 +58,7 @@ pnpm-debug.log*
 .gradle/
 
 # Internal docs (kept local for AI tools / dev reference)
-/docs/
+# Product development and release documentation is tracked.
 
 # Local Claude / agent state
 .claude/settings.local.json
@@ -76,3 +80,7 @@ Thumbs.db
 # Local test artifacts (mask verification outputs, scratch images)
 /test_output/
 /test-mask.png
+
+# Local launch/demo media is delivered separately from source code.
+/website/coskit/media/
+__pycache__/

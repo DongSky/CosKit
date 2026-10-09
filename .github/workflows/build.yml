@@ -1,83 +1,34 @@
-name: Build CosKit (Rust/Tauri v2)
-
+name: Build CosKit Native Studio
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
-
 permissions:
-  contents: write
-
+  contents: read
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-latest
-            target: aarch64-apple-darwin
-            label: macOS-arm64
-          - platform: macos-latest
-            target: x86_64-apple-darwin
-            label: macOS-x64
-          - platform: windows-latest
-            target: x86_64-pc-windows-msvc
-            label: Windows-x64
-
-    runs-on: ${{ matrix.platform }}
-    name: Build (${{ matrix.label }})
-
+  windows:
+    runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 22
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
         with:
-          targets: ${{ matrix.target }}
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri -> target
-
-      - name: Install npm dependencies
-        run: npm install
-
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          workspaces: native -> target
+      - run: python scripts/check-native-parity.py
+      - run: npm run build
+      - run: choco install nsis -y --no-progress
+      - shell: pwsh
+        run: ./scripts/package-native.ps1 -Makensis "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+      - uses: actions/upload-artifact@v4
         with:
-          tauriScript: npx tauri
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: 'CosKit ${{ github.ref_name }}'
-          releaseBody: |
-            ## CosKit ${{ github.ref_name }}
-
-            ### Downloads
-            - **macOS (Apple Silicon)**: `CosKit_x.x.x_aarch64.dmg`
-            - **macOS (Intel)**: `CosKit_x.x.x_x64.dmg`
-            - **Windows (安装版)**: `CosKit_x.x.x_x64-setup.exe` or `.msi`
-            - **Windows (便携版)**: `CosKit_x.x.x_x64_portable.exe`
-          releaseDraft: true
-          prerelease: false
-
-      - name: Upload Windows portable exe
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $version = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
-          $src = "src-tauri/target/${{ matrix.target }}/release/coskit.exe"
-          $dst = "CosKit_${version}_x64_portable.exe"
-          Copy-Item $src $dst
-          gh release upload ${{ github.ref_name }} $dst --clobber
+          name: CosKit-Windows-x64
+          path: |
+            dist/*setup.exe
+            dist/*portable.zip
+            dist/SHA256SUMS-*.txt

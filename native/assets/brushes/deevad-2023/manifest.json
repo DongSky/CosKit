@@ -1,0 +1,180 @@
+{
+  "author": "David Revoy",
+  "license": "CC0-1.0",
+  "url": "https://www.davidrevoy.com/article953/krita-brushes-2023-01-bundle",
+  "download": "https://www.peppercarrot.com/extras/resources/deevad-bundle_23-01.zip",
+  "bundle_sha256": "1bec5740f912e3be59af285ca64d4119ab418bea116392b93f4d6d63d70de1b1",
+  "assets": [
+    {
+      "source": "brushes/3_rake.png",
+      "sha256": "7a06b61ce7d98b6688e78c0c7043984464d2f66d724b2f646a6eb0bc486a503d",
+      "tip": "3_rake.tip",
+      "width": 150,
+      "height": 150,
+      "tip_sha256": "d9ea67d5b76c09598d596580968c429fdea7bbb8370b0fc4c11a7777c4d409fc",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/abominable_snowman.png",
+      "sha256": "d90383dc9cfdedf0d6fb0bb94b1f325e077d85131ab4c16da17e0a941979e1ce",
+      "tip": "abominable_snowman.tip",
+      "width": 192,
+      "height": 192,
+      "tip_sha256": "0ce6e8f43f657df6759dd754fdcbe909b3c50556a38a0445b7e35ead6ce4ad83",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/bristle.png",
+      "sha256": "49c33b62fa4b0d9bfbb9e257d0b802b40a60cab09cd4c7f19c92a9e566d1d830",
+      "tip": "bristle.tip",
+      "width": 54,
+      "height": 52,
+      "tip_sha256": "73712d7d280f32550c0d6b1231061de8a0a0cd5a7df77fad62685fb4386efeb7",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/bristles_circle_medium.png",
+      "sha256": "e605d9a36f17f65b351616f20a4f68941df03ee424f97e8245138ce83eee32fb",
+      "tip": "bristles_circle_medium.tip",
+      "width": 192,
+      "height": 187,
+      "tip_sha256": "c2ef9efae72e5f7bf728529e811da73628708a4716b78456a0abb60753fd2eee",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/bristles_grouped.gbr",
+      "sha256": "1bc74c1c12dba9ba97ed83ea3ed212c3448cddb8f57a4a3685dd93463e9ce9c4",
+      "tip": "bristles_grouped.tip",
+      "width": 64,
+      "height": 64,
+      "tip_sha256": "a84de68526f2cb1eda29a64c828fad9302400f6e187a7d7c96e03a5569a4a0ce",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/chalk_chisel_losange_202210A.gih",
+      "sha256": "ffd1b9ba185b6aefd22ea22eca357f0944e4711cff2c7daba29b917c6952fa8a",
+      "tip": "chalk_chisel_losange_202210A.tip",
+      "width": 64,
+      "height": 64,
+      "tip_sha256": "f47a8ec3e9aff2318d896942282ad4fe37d6391c82914f54a5da8a37de1300c6",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/chalk_chisel_random_small.gih",
+      "sha256": "f8f08a0cd1ad64dbf12e7424303a847e6bffa82e1b557a1dc30fad86baac2226",
+      "tip": "chalk_chisel_random_small.tip",
+      "width": 64,
+      "height": 64,
+      "tip_sha256": "63626c7aa5dc458978dbed53b117f262aba07fc95c8b97043278e9663612a57a",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/chalk_sparse.png",
+      "sha256": "781638b7a11e6ff5e1e330143b2b0a8533d3e3af59928bcb9b6d42eb3179c142",
+      "tip": "chalk_sparse.tip",
+      "width": 192,
+      "height": 192,
+      "tip_sha256": "68796fd7e6514201324c59cd9333802215d2f6442d45d15a93c251dd33bb4f98",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/chisel_streaks.png",
+      "sha256": "3165b445199bdab7536437e9e8382c3571d3707a0a92970c7609c5a2498e36fd",
+      "tip": "chisel_streaks.tip",
+      "width": 150,
+      "height": 150,
+      "tip_sha256": "37e7fa2010ab46bc07ecf69ab5ceaac7df89b4966af3c0a0c5c7e6ae88d8cd9b",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/deevad-202210C_compact-fix.gih",
+      "sha256": "0ac317306faee81dedfe92e15e0744de10bea18f9a2fe08dbb50f0ae1daed1ba",
+      "tip": "deevad-202210C_compact-fix.tip",
+      "width": 180,
+      "height": 124,
+      "tip_sha256": "e0926834c2633ad6fbb989e496c594ed6a46b7dd68eb10efc31cf949cd0d9c82",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/deevad-painterly-brush-tip_2023C.png",
+      "sha256": "4365092543812d41e5c17df06213472a4b42430b903789871b23edc43e983713",
+      "tip": "deevad-painterly-brush-tip_2023C.tip",
+      "width": 192,
+      "height": 192,
+      "tip_sha256": "ced268762cdb1074e2914c6a8413d786797e50a1990ecf07611a96ad6197b9d3",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/flat-tip-dirty.png",
+      "sha256": "dcc742582543c613511a639277bde16f24572619ff5c754b74aec2f184bbfce8",
+      "tip": "flat-tip-dirty.tip",
+      "width": 153,
+      "height": 64,
+      "tip_sha256": "6e8b6d47f81a6be1854b242d7210600412080067b3274a041ad3ef7a6c7a13fe",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/impressionism_brush.gih",
+      "sha256": "5904627b0a1b7f1b33b902b7beb311a22b1ade202d25d4606a78bab4b7ee9dac",
+      "tip": "impressionism_brush.tip",
+      "width": 192,
+      "height": 192,
+      "tip_sha256": "47faa6718c89f2fbab8cefaf02ae9587691e6a058189683c088bd3949d91e426",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/random-debris.gbr",
+      "sha256": "071045ea314f7beb41c6f42584d9b07617de67da977f4b7d783910a528260ebd",
+      "tip": "random-debris.tip",
+      "width": 153,
+      "height": 64,
+      "tip_sha256": "6e8b6d47f81a6be1854b242d7210600412080067b3274a041ad3ef7a6c7a13fe",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/rock_pitted-fixed.gih",
+      "sha256": "96bb7ab5eb021b5bbcbd55fedec32e599cc8f8c066b3ebb9d9e303ce89e06c12",
+      "tip": "rock_pitted-fixed.tip",
+      "width": 192,
+      "height": 192,
+      "tip_sha256": "da8d97983b02de3f526f16ce8b3aaaca6b0bb8f19c4aefdfec49709331967444",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/scratches_rough.gih",
+      "sha256": "8e8f7b2ee1b258d2e563c6c5771a2a1a7fc836c24f1386cc3dbcae3c8cc01271",
+      "tip": "scratches_rough.tip",
+      "width": 192,
+      "height": 192,
+      "tip_sha256": "911fd054f9523552d56e15b8206a53e864dec7dc0cc21545b8a8198023228637",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/splat_dots.png",
+      "sha256": "c5b911af902057892cbe27db68e055695b111c615aee89a552dc8acde5114d8c",
+      "tip": "splat_dots.tip",
+      "width": 112,
+      "height": 111,
+      "tip_sha256": "53a56b74856fc8ef1f1d6b6afd5b5e129bffb37afbb9ff11459395a8ecd77606",
+      "conversion": "static tip"
+    },
+    {
+      "source": "brushes/splats_large.gih",
+      "sha256": "3ee50f28acb6f3dc9d24b9d96aeb389fbb4038c6be3bcaca6877543d9654eb23",
+      "tip": "splats_large.tip",
+      "width": 192,
+      "height": 174,
+      "tip_sha256": "d9fdedf44df889ebe7ff23c1441a0606878f9bafcc4f3bbb2804e65858bc4fd2",
+      "conversion": "first frame"
+    },
+    {
+      "source": "brushes/square_rough_lightgrey.png",
+      "sha256": "4be4e7464997ba1b944645ff96d53655b62843403af8b0b88d96d3aba4d30569",
+      "tip": "square_rough_lightgrey.tip",
+      "width": 192,
+      "height": 189,
+      "tip_sha256": "d6c1f5bcf74fd0540409f26763902c49c31c03f74b02a5ae2be7f916bd6ac433",
+      "conversion": "static tip"
+    }
+  ]
+}

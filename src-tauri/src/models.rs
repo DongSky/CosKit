@@ -111,10 +111,7 @@ fn default_status() -> String {
 }
 
 fn now_timestamp() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs_f64()
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs_f64()
 }
 
 impl EditNode {
@@ -161,14 +158,7 @@ pub struct Session {
 
 impl Session {
     pub fn new(id: String, root_id: String, original_size: (u32, u32)) -> Self {
-        Self {
-            id,
-            root_id,
-            nodes: HashMap::new(),
-            original_size,
-            active_path: Vec::new(),
-            created_at: now_timestamp(),
-        }
+        Self { id, root_id, nodes: HashMap::new(), original_size, active_path: Vec::new(), created_at: now_timestamp() }
     }
 }
 
@@ -273,15 +263,7 @@ fn default_true() -> bool {
 
 impl Default for PipelineModules {
     fn default() -> Self {
-        Self {
-            retouch: true,
-            background: false,
-            effects: false,
-            agent_mode: true,
-            save_intermediates: true,
-            combined_mode: false,
-            review_enabled: false,
-        }
+        Self { retouch: true, background: false, effects: false, agent_mode: true, save_intermediates: true, combined_mode: false, review_enabled: false }
     }
 }
 

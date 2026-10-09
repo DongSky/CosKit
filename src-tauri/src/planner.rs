@@ -25,8 +25,7 @@ pub fn validate_plan(plan: &WorkflowPlan) -> Result<(), String> {
     }
 
     let registry = skills::skill_registry();
-    let node_ids: std::collections::HashSet<&str> =
-        plan.nodes.iter().map(|n| n.node_id.as_str()).collect();
+    let node_ids: std::collections::HashSet<&str> = plan.nodes.iter().map(|n| n.node_id.as_str()).collect();
 
     for node in &plan.nodes {
         if !registry.contains_key(&node.skill_id) {
@@ -42,11 +41,7 @@ pub fn validate_plan(plan: &WorkflowPlan) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn plan_workflow(
-    image_b64: &str,
-    user_prompt: &str,
-    references: &[ReferenceImage],
-) -> Result<WorkflowPlan, String> {
+pub async fn plan_workflow(image_b64: &str, user_prompt: &str, references: &[ReferenceImage]) -> Result<WorkflowPlan, String> {
     plan_workflow_inner(image_b64, user_prompt, references, "").await
 }
 
@@ -57,11 +52,7 @@ pub async fn plan_workflow_with_feedback(
     feedback: &str,
     suggestions: &[String],
 ) -> Result<WorkflowPlan, String> {
-    let suggestions_text = suggestions
-        .iter()
-        .map(|s| format!("- {s}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let suggestions_text = suggestions.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n");
 
     let feedback_section = format!(
         "\n\n## 上一次执行的审核反馈\n{feedback}\n\n## 改进建议\n{suggestions_text}\n\n\
@@ -71,12 +62,7 @@ pub async fn plan_workflow_with_feedback(
     plan_workflow_inner(image_b64, user_prompt, references, &feedback_section).await
 }
 
-async fn plan_workflow_inner(
-    image_b64: &str,
-    user_prompt: &str,
-    references: &[ReferenceImage],
-    feedback_section: &str,
-) -> Result<WorkflowPlan, String> {
+async fn plan_workflow_inner(image_b64: &str, user_prompt: &str, references: &[ReferenceImage], feedback_section: &str) -> Result<WorkflowPlan, String> {
     let catalog = skills::skills_catalog_for_planner();
 
     let system_prompt = format!(
@@ -131,8 +117,7 @@ async fn plan_workflow_inner(
 {user_prompt}{feedback_section}"#
     );
 
-    let resp =
-        gemini_client::call_text_generation(image_b64, &system_prompt, references, 0.2).await?;
+    let resp = gemini_client::call_text_generation(image_b64, &system_prompt, references, 0.2).await?;
 
     let text = gemini_client::extract_text(&resp);
     if text.is_empty() {
@@ -140,22 +125,14 @@ async fn plan_workflow_inner(
     }
 
     let json_val = gemini_client::parse_json(&text)?;
-    let plan: WorkflowPlan =
-        serde_json::from_value(json_val).map_err(|e| format!("解析规划结果失败: {e}"))?;
+    let plan: WorkflowPlan = serde_json::from_value(json_val).map_err(|e| format!("解析规划结果失败: {e}"))?;
 
     validate_plan(&plan)?;
 
     let reasoning_preview: String = plan.reasoning.chars().take(80).collect();
-    eprintln!(
-        "[CosKit] planner: {} steps, reasoning: {}",
-        plan.nodes.len(),
-        reasoning_preview
-    );
+    eprintln!("[CosKit] planner: {} steps, reasoning: {}", plan.nodes.len(), reasoning_preview);
     for node in &plan.nodes {
-        eprintln!(
-            "[CosKit]   step {}: skill={}, prompt={}",
-            node.node_id, node.skill_id, node.skill_prompt
-        );
+        eprintln!("[CosKit]   step {}: skill={}, prompt={}", node.node_id, node.skill_id, node.skill_prompt);
     }
 
     Ok(plan)
@@ -166,10 +143,7 @@ mod tests {
     use super::*;
 
     fn make_plan(reasoning: &str, nodes: Vec<PlannedNode>) -> WorkflowPlan {
-        WorkflowPlan {
-            reasoning: reasoning.to_string(),
-            nodes,
-        }
+        WorkflowPlan { reasoning: reasoning.to_string(), nodes }
     }
 
     fn make_node(id: &str, skill: &str, deps: Vec<&str>) -> PlannedNode {
@@ -212,13 +186,7 @@ mod tests {
 
     #[test]
     fn serde_roundtrip_chinese() {
-        let plan = make_plan(
-            "用户需要替换背景并添加特效",
-            vec![
-                make_node("step_1", "bg_replace", vec![]),
-                make_node("step_2", "special_fx", vec!["step_1"]),
-            ],
-        );
+        let plan = make_plan("用户需要替换背景并添加特效", vec![make_node("step_1", "bg_replace", vec![]), make_node("step_2", "special_fx", vec!["step_1"])]);
         let json = serde_json::to_string(&plan).unwrap();
         let de: WorkflowPlan = serde_json::from_str(&json).unwrap();
         assert_eq!(de.reasoning, plan.reasoning);
@@ -236,20 +204,14 @@ mod tests {
 
     #[test]
     fn validate_unknown_skill_rejected() {
-        let plan = make_plan(
-            "bad skill",
-            vec![make_node("step_1", "nonexistent_skill", vec![])],
-        );
+        let plan = make_plan("bad skill", vec![make_node("step_1", "nonexistent_skill", vec![])]);
         let err = validate_plan(&plan).unwrap_err();
         assert!(err.contains("未知技能"));
     }
 
     #[test]
     fn validate_missing_dep_rejected() {
-        let plan = make_plan(
-            "missing dep",
-            vec![make_node("step_1", "bg_replace", vec!["step_99"])],
-        );
+        let plan = make_plan("missing dep", vec![make_node("step_1", "bg_replace", vec!["step_99"])]);
         let err = validate_plan(&plan).unwrap_err();
         assert!(err.contains("不存在"));
     }

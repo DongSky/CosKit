@@ -11,8 +11,7 @@ pub fn save_jpeg(img: &DynamicImage, path: &Path, quality: u8) -> Result<(), Str
     let rgb = img.to_rgb8();
     let mut buf = Cursor::new(Vec::new());
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
-    rgb.write_with_encoder(encoder)
-        .map_err(|e| format!("failed to encode JPEG: {e}"))?;
+    rgb.write_with_encoder(encoder).map_err(|e| format!("failed to encode JPEG: {e}"))?;
     fs::write(path, buf.into_inner()).map_err(|e| format!("failed to write file: {e}"))?;
     Ok(())
 }
@@ -28,8 +27,7 @@ pub fn save_png(img: &DynamicImage, path: &Path) -> Result<(), String> {
 /// Encode a DynamicImage to PNG bytes (lossless).
 pub fn image_to_png_bytes(img: &DynamicImage) -> Result<Vec<u8>, String> {
     let mut buf = Cursor::new(Vec::new());
-    img.write_to(&mut buf, image::ImageFormat::Png)
-        .map_err(|e| format!("failed to encode PNG: {e}"))?;
+    img.write_to(&mut buf, image::ImageFormat::Png).map_err(|e| format!("failed to encode PNG: {e}"))?;
     Ok(buf.into_inner())
 }
 
@@ -48,8 +46,7 @@ pub fn image_to_base64_url(path: &str) -> Result<String, String> {
 
 /// Load a DynamicImage from raw bytes.
 pub fn load_image_from_bytes(data: &[u8]) -> Result<DynamicImage, String> {
-    let mut img =
-        image::load_from_memory(data).map_err(|e| format!("failed to load image: {e}"))?;
+    let mut img = image::load_from_memory(data).map_err(|e| format!("failed to load image: {e}"))?;
 
     // Apply EXIF orientation if present
     if let Some(orientation) = read_exif_orientation(data) {
@@ -69,9 +66,7 @@ pub fn load_image_from_bytes(data: &[u8]) -> Result<DynamicImage, String> {
 }
 
 fn read_exif_orientation(data: &[u8]) -> Option<u32> {
-    let exif = exif::Reader::new()
-        .read_from_container(&mut std::io::Cursor::new(data))
-        .ok()?;
+    let exif = exif::Reader::new().read_from_container(&mut std::io::Cursor::new(data)).ok()?;
     let field = exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?;
     field.value.get_uint(0)
 }
@@ -90,8 +85,7 @@ pub fn image_to_jpeg_bytes(img: &DynamicImage, quality: u8) -> Result<Vec<u8>, S
     let rgb = img.to_rgb8();
     let mut buf = Cursor::new(Vec::new());
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
-    rgb.write_with_encoder(encoder)
-        .map_err(|e| format!("failed to encode JPEG: {e}"))?;
+    rgb.write_with_encoder(encoder).map_err(|e| format!("failed to encode JPEG: {e}"))?;
     Ok(buf.into_inner())
 }
 
@@ -102,9 +96,7 @@ pub fn bytes_to_base64(data: &[u8]) -> String {
 
 /// Decode base64 string to bytes.
 pub fn base64_to_bytes(b64: &str) -> Result<Vec<u8>, String> {
-    base64::engine::general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|e| format!("base64 decode error: {e}"))
+    base64::engine::general_purpose::STANDARD.decode(b64).map_err(|e| format!("base64 decode error: {e}"))
 }
 
 /// Resize image so longest side is at most `max_dim` pixels. No-op if already smaller.
@@ -117,20 +109,14 @@ pub fn resize_max_dimension(img: &DynamicImage, max_dim: u32) -> DynamicImage {
 
 /// Load image from file path.
 pub fn load_image_from_path(path: &str) -> Result<DynamicImage, String> {
-    image::open(path)
-        .map(|img| img.into())
-        .map_err(|e| format!("failed to open image {path}: {e}"))
+    image::open(path).map_err(|e| format!("failed to open image {path}: {e}"))
 }
 
 /// Composite API result onto original using mask.
 /// Mask convention: alpha=255 (opaque white) = protect (use original),
 /// alpha=0 (transparent) = edit (use result). Intermediate values blend linearly.
 /// All three images must have the same dimensions.
-pub fn composite_with_mask(
-    original: &DynamicImage,
-    result: &DynamicImage,
-    mask: &DynamicImage,
-) -> DynamicImage {
+pub fn composite_with_mask(original: &DynamicImage, result: &DynamicImage, mask: &DynamicImage) -> DynamicImage {
     let (w, h) = (original.width(), original.height());
     let orig_rgba = original.to_rgba8();
     let result_rgba = result.to_rgba8();
@@ -148,7 +134,7 @@ pub fn composite_with_mask(
                 (orig_px[0] as f32 * mask_a + res_px[0] as f32 * (1.0 - mask_a)) as u8,
                 (orig_px[1] as f32 * mask_a + res_px[1] as f32 * (1.0 - mask_a)) as u8,
                 (orig_px[2] as f32 * mask_a + res_px[2] as f32 * (1.0 - mask_a)) as u8,
-                255,
+                (orig_px[3] as f32 * mask_a + res_px[3] as f32 * (1.0 - mask_a)).round() as u8,
             ]);
             output.put_pixel(x, y, blended);
         }
@@ -166,11 +152,7 @@ pub fn generate_mask_overlay(image_b64: &str, mask_b64: &str) -> Result<String, 
     let mask = load_image_from_bytes(&mask_bytes)?;
 
     let (w, h) = (img.width(), img.height());
-    let mask_resized = if mask.width() != w || mask.height() != h {
-        mask.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
-    } else {
-        mask
-    };
+    let mask_resized = if mask.width() != w || mask.height() != h { mask.resize_exact(w, h, image::imageops::FilterType::Lanczos3) } else { mask };
 
     let img_rgba = img.to_rgba8();
     let mask_rgba = mask_resized.to_rgba8();
@@ -183,8 +165,7 @@ pub fn generate_mask_overlay(image_b64: &str, mask_b64: &str) -> Result<String, 
             // Where mask is transparent (edit region), overlay red tint
             let red_blend = 1.0 - mask_a; // 0 at protected, 1 at edit
             let tint_strength = 0.45;
-            let r = (src[0] as f32 * (1.0 - red_blend * tint_strength)
-                + 255.0 * red_blend * tint_strength) as u8;
+            let r = (src[0] as f32 * (1.0 - red_blend * tint_strength) + 255.0 * red_blend * tint_strength) as u8;
             let g = (src[1] as f32 * (1.0 - red_blend * tint_strength * 0.8)) as u8;
             let b = (src[2] as f32 * (1.0 - red_blend * tint_strength * 0.8)) as u8;
             output.put_pixel(x, y, Rgba([r, g, b, 255]));
@@ -252,9 +233,7 @@ pub fn composite_layers(layers: &[LayerInput]) -> Result<DynamicImage, String> {
         let opacity = layer.opacity.clamp(0.0, 1.0);
         let resized;
         let img = if layer.image.width() != w || layer.image.height() != h {
-            resized = layer
-                .image
-                .resize_exact(w, h, image::imageops::FilterType::Lanczos3);
+            resized = layer.image.resize_exact(w, h, image::imageops::FilterType::Lanczos3);
             &resized
         } else {
             layer.image
@@ -308,11 +287,7 @@ pub fn composite_layers(layers: &[LayerInput]) -> Result<DynamicImage, String> {
 /// Compositing [base, this layer] therefore equals `composite_with_mask`.
 pub fn extract_edit_layer(result: &DynamicImage, mask: &DynamicImage) -> DynamicImage {
     let (w, h) = (result.width(), result.height());
-    let mask_resized = if mask.width() != w || mask.height() != h {
-        mask.resize_exact(w, h, image::imageops::FilterType::Lanczos3)
-    } else {
-        mask.clone()
-    };
+    let mask_resized = if mask.width() != w || mask.height() != h { mask.resize_exact(w, h, image::imageops::FilterType::Lanczos3) } else { mask.clone() };
     let result_rgba = result.to_rgba8();
     let mask_rgba = mask_resized.to_rgba8();
 

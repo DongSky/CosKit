@@ -39,20 +39,13 @@ impl ReviewConfig {
     }
 }
 
-fn build_review_prompt(
-    user_prompt: &str,
-    plan: &WorkflowPlan,
-    references: &[ReferenceImage],
-) -> String {
+fn build_review_prompt(user_prompt: &str, plan: &WorkflowPlan, references: &[ReferenceImage]) -> String {
     let registry = skills::skill_registry();
     let steps_desc: Vec<String> = plan
         .nodes
         .iter()
         .map(|pn| {
-            let name = registry
-                .get(&pn.skill_id)
-                .map(|s| s.name.as_str())
-                .unwrap_or("未知");
+            let name = registry.get(&pn.skill_id).map(|s| s.name.as_str()).unwrap_or("未知");
             format!("  - {}: {} — {}", pn.node_id, name, pn.skill_prompt)
         })
         .collect();
@@ -114,12 +107,7 @@ fn build_review_prompt(
     )
 }
 
-fn build_review_contents(
-    prompt_text: &str,
-    original_b64: &str,
-    result_b64: &str,
-    references: &[ReferenceImage],
-) -> serde_json::Value {
+fn build_review_contents(prompt_text: &str, original_b64: &str, result_b64: &str, references: &[ReferenceImage]) -> serde_json::Value {
     let mut parts = vec![
         json!({"text": prompt_text}),
         json!({"text": "\n原始照片："}),
@@ -157,16 +145,7 @@ pub async fn review_image(
     let prompt_text = build_review_prompt(user_prompt, plan, references);
     let contents = build_review_contents(&prompt_text, original_b64, result_b64, references);
 
-    let resp = gemini_client::call_text_with_provider(
-        &config.provider,
-        &config.base_url,
-        &config.api_key,
-        &config.model,
-        contents,
-        0.2,
-        3,
-    )
-    .await?;
+    let resp = gemini_client::call_text_with_provider(&config.provider, &config.base_url, &config.api_key, &config.model, contents, 0.2, 3).await?;
 
     let text = gemini_client::extract_text(&resp);
     if text.is_empty() {
@@ -174,17 +153,11 @@ pub async fn review_image(
     }
 
     let json_val = gemini_client::parse_json(&text)?;
-    let mut review: ReviewResult =
-        serde_json::from_value(json_val).map_err(|e| format!("解析审核结果失败: {e}"))?;
+    let mut review: ReviewResult = serde_json::from_value(json_val).map_err(|e| format!("解析审核结果失败: {e}"))?;
 
     review.pass = review.overall_score >= threshold;
 
-    eprintln!(
-        "[CosKit] review: score={:.1}, pass={}, feedback={}",
-        review.overall_score,
-        review.pass,
-        review.feedback.chars().take(60).collect::<String>()
-    );
+    eprintln!("[CosKit] review: score={:.1}, pass={}, feedback={}", review.overall_score, review.pass, review.feedback.chars().take(60).collect::<String>());
 
     Ok(review)
 }
@@ -198,12 +171,7 @@ mod tests {
     fn review_result_serde_roundtrip() {
         let review = ReviewResult {
             overall_score: 8.5,
-            dimensions: ReviewDimensions {
-                aesthetic_quality: 8.0,
-                requirement_match: 9.0,
-                technical_quality: 8.5,
-                consistency: 8.0,
-            },
+            dimensions: ReviewDimensions { aesthetic_quality: 8.0, requirement_match: 9.0, technical_quality: 8.5, consistency: 8.0 },
             feedback: "整体效果良好".to_string(),
             suggestions: vec!["建议加强光照一致性".to_string()],
             pass: true,
@@ -218,18 +186,8 @@ mod tests {
         let plan = WorkflowPlan {
             reasoning: "test".into(),
             nodes: vec![
-                PlannedNode {
-                    node_id: "step_1".into(),
-                    skill_id: "bg_replace".into(),
-                    skill_prompt: "换成夜景".into(),
-                    depends_on: vec![],
-                },
-                PlannedNode {
-                    node_id: "step_2".into(),
-                    skill_id: "special_fx".into(),
-                    skill_prompt: "添加光效".into(),
-                    depends_on: vec!["step_1".into()],
-                },
+                PlannedNode { node_id: "step_1".into(), skill_id: "bg_replace".into(), skill_prompt: "换成夜景".into(), depends_on: vec![] },
+                PlannedNode { node_id: "step_2".into(), skill_id: "special_fx".into(), skill_prompt: "添加光效".into(), depends_on: vec!["step_1".into()] },
             ],
         };
         let prompt = build_review_prompt("请修图", &plan, &[]);
@@ -241,23 +199,13 @@ mod tests {
 
     #[test]
     fn review_config_unconfigured() {
-        let config = ReviewConfig {
-            provider: String::new(),
-            model: String::new(),
-            base_url: String::new(),
-            api_key: String::new(),
-        };
+        let config = ReviewConfig { provider: String::new(), model: String::new(), base_url: String::new(), api_key: String::new() };
         assert!(!config.is_configured());
     }
 
     #[test]
     fn review_config_configured() {
-        let config = ReviewConfig {
-            provider: "openai".into(),
-            model: "gpt-4".into(),
-            base_url: "https://api.openai.com/v1".into(),
-            api_key: "sk-test".into(),
-        };
+        let config = ReviewConfig { provider: "openai".into(), model: "gpt-4".into(), base_url: "https://api.openai.com/v1".into(), api_key: "sk-test".into() };
         assert!(config.is_configured());
     }
 }

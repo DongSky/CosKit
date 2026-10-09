@@ -24,8 +24,7 @@ pub fn is_openai_family(provider: &str) -> bool {
     provider == PROVIDER_OPENAI || provider == PROVIDER_QWEN
 }
 
-const PERMANENT_ERROR_KEYWORDS: &[&str] =
-    &["PROHIBITED_CONTENT", "SAFETY", "RECITATION", "BLOCKED"];
+const PERMANENT_ERROR_KEYWORDS: &[&str] = &["PROHIBITED_CONTENT", "SAFETY", "RECITATION", "BLOCKED"];
 
 // ---------------------------------------------------------------------------
 // Gemini client singleton
@@ -58,9 +57,7 @@ fn clients_lock() -> &'static RwLock<Option<GeminiClients>> {
 /// Get a clone of the current clients (drops the lock immediately).
 pub fn get_clients() -> Result<GeminiClients, String> {
     let lock = clients_lock().read().map_err(|e| e.to_string())?;
-    lock.as_ref()
-        .cloned()
-        .ok_or_else(|| "Gemini clients not initialized".to_string())
+    lock.as_ref().cloned().ok_or_else(|| "Gemini clients not initialized".to_string())
 }
 
 impl GeminiClients {
@@ -68,179 +65,148 @@ impl GeminiClients {
         crate::dotenv::load_dotenv_files();
         let settings = settings::load_settings();
 
-        let text_provider = if settings.text_provider.trim().is_empty() {
-            PROVIDER_GEMINI.to_string()
-        } else {
-            settings.text_provider.trim().to_lowercase()
-        };
-        let image_provider = if settings.image_provider.trim().is_empty() {
-            PROVIDER_GEMINI.to_string()
-        } else {
-            settings.image_provider.trim().to_lowercase()
-        };
+        let text_provider = if settings.text_provider.trim().is_empty() { PROVIDER_GEMINI.to_string() } else { settings.text_provider.trim().to_lowercase() };
+        let image_provider =
+            if settings.image_provider.trim().is_empty() { PROVIDER_GEMINI.to_string() } else { settings.image_provider.trim().to_lowercase() };
 
         // ----- Text model resolution -----
-        let (text_url, text_openai_base, text_api_key, text_model) =
-            if text_provider == PROVIDER_QWEN {
-                let base = openai_client::resolve_qwen_base_url(&settings.text_base_url);
-                let key = openai_client::resolve_qwen_api_key(&settings.text_api_key);
-                let env_model = crate::dotenv::get_env_var("QWEN_MODEL").trim().to_string();
-                let model = if !settings.text_model.trim().is_empty() {
-                    settings.text_model.trim().to_string()
-                } else if !env_model.is_empty() {
-                    env_model
-                } else {
-                    openai_client::QWEN_DEFAULT_TEXT_MODEL.to_string()
-                };
-                (String::new(), base, key, model)
-            } else if text_provider == PROVIDER_OPENAI {
-                let base = openai_client::resolve_base_url(&settings.text_base_url);
-                let key = openai_client::resolve_api_key(&settings.text_api_key);
-                let env_model = crate::dotenv::get_env_var("OPENAI_MODEL")
-                    .trim()
-                    .to_string();
-                let model = if !settings.text_model.trim().is_empty() {
-                    settings.text_model.trim().to_string()
-                } else if !env_model.is_empty() {
-                    env_model
-                } else {
-                    openai_client::DEFAULT_TEXT_MODEL.to_string()
-                };
-                (String::new(), base, key, model)
+        let (text_url, text_openai_base, text_api_key, text_model) = if text_provider == PROVIDER_QWEN {
+            let base = openai_client::resolve_qwen_base_url(&settings.text_base_url);
+            let key = openai_client::resolve_qwen_api_key(&settings.text_api_key);
+            let env_model = crate::dotenv::get_env_var("QWEN_MODEL").trim().to_string();
+            let model = if !settings.text_model.trim().is_empty() {
+                settings.text_model.trim().to_string()
+            } else if !env_model.is_empty() {
+                env_model
             } else {
-                // Gemini
-                let raw = if !settings.text_base_url.trim().is_empty() {
-                    settings.text_base_url.trim().to_string()
-                } else {
-                    crate::dotenv::get_env_var("GEMINI_BASE_URL")
-                        .trim()
-                        .to_string()
-                };
-                let key = if !settings.text_api_key.trim().is_empty() {
-                    settings.text_api_key.trim().to_string()
-                } else {
-                    crate::dotenv::get_env_var("GEMINI_API_KEY")
-                        .trim()
-                        .to_string()
-                };
-                let (base, url_model) = if !raw.is_empty() {
-                    parse_proxy_url(&raw)
-                } else {
-                    (String::new(), String::new())
-                };
-                let model = if !settings.text_model.trim().is_empty() {
-                    settings.text_model.trim().to_string()
-                } else {
-                    let env_val = crate::dotenv::get_env_var("GEMINI_TEXT_MODEL");
-                    if !env_val.trim().is_empty() {
-                        env_val.trim().to_string()
-                    } else if !url_model.is_empty() {
-                        url_model
-                    } else {
-                        DEFAULT_TEXT_MODEL.to_string()
-                    }
-                };
-                let url = build_api_url(&base, &model);
-                (url, String::new(), key, model)
+                openai_client::QWEN_DEFAULT_TEXT_MODEL.to_string()
             };
+            (String::new(), base, key, model)
+        } else if text_provider == PROVIDER_OPENAI {
+            let base = openai_client::resolve_base_url(&settings.text_base_url);
+            let key = openai_client::resolve_api_key(&settings.text_api_key);
+            let env_model = openai_client::resolve_text_model("");
+            let model = if !settings.text_model.trim().is_empty() {
+                settings.text_model.trim().to_string()
+            } else if !env_model.is_empty() {
+                env_model
+            } else {
+                openai_client::DEFAULT_TEXT_MODEL.to_string()
+            };
+            (String::new(), base, key, model)
+        } else {
+            // Gemini
+            let raw = if !settings.text_base_url.trim().is_empty() {
+                settings.text_base_url.trim().to_string()
+            } else {
+                crate::dotenv::get_env_var("GEMINI_BASE_URL").trim().to_string()
+            };
+            let key = if !settings.text_api_key.trim().is_empty() {
+                settings.text_api_key.trim().to_string()
+            } else {
+                crate::dotenv::get_env_var("GEMINI_API_KEY").trim().to_string()
+            };
+            let (base, url_model) = if !raw.is_empty() { parse_proxy_url(&raw) } else { (String::new(), String::new()) };
+            let model = if !settings.text_model.trim().is_empty() {
+                settings.text_model.trim().to_string()
+            } else {
+                let env_val = crate::dotenv::get_env_var("GEMINI_TEXT_MODEL");
+                if !env_val.trim().is_empty() {
+                    env_val.trim().to_string()
+                } else if !url_model.is_empty() {
+                    url_model
+                } else {
+                    DEFAULT_TEXT_MODEL.to_string()
+                }
+            };
+            let url = build_api_url(&base, &model);
+            (url, String::new(), key, model)
+        };
         let text_timeout = settings.text_timeout_ms;
 
         // ----- Image model resolution -----
-        let (image_url, image_openai_base, image_api_key, image_model) =
-            if image_provider == PROVIDER_QWEN {
-                let base = openai_client::resolve_qwen_base_url(&settings.image_base_url);
-                let key_settings = settings.image_api_key.trim().to_string();
-                let key = if !key_settings.is_empty() {
-                    key_settings
-                } else {
-                    let env_key = openai_client::resolve_qwen_api_key("");
-                    if !env_key.is_empty() {
-                        env_key
-                    } else if text_provider == PROVIDER_QWEN && !text_api_key.is_empty() {
-                        text_api_key.clone()
-                    } else {
-                        String::new()
-                    }
-                };
-                let env_model = crate::dotenv::get_env_var("QWEN_IMAGE_MODEL")
-                    .trim()
-                    .to_string();
-                let model = if !settings.image_model.trim().is_empty() {
-                    settings.image_model.trim().to_string()
-                } else if !env_model.is_empty() {
-                    env_model
-                } else {
-                    openai_client::QWEN_DEFAULT_IMAGE_MODEL.to_string()
-                };
-                (String::new(), base, key, model)
-            } else if image_provider == PROVIDER_OPENAI {
-                let base = openai_client::resolve_base_url(&settings.image_base_url);
-                let key_settings = settings.image_api_key.trim().to_string();
-                let key = if !key_settings.is_empty() {
-                    key_settings
-                } else {
-                    let env_key = crate::dotenv::get_env_var("OPENAI_API_KEY")
-                        .trim()
-                        .to_string();
-                    if !env_key.is_empty() {
-                        env_key
-                    } else if text_provider == PROVIDER_OPENAI && !text_api_key.is_empty() {
-                        text_api_key.clone()
-                    } else {
-                        String::new()
-                    }
-                };
-                let env_model = crate::dotenv::get_env_var("OPENAI_IMAGE_MODEL")
-                    .trim()
-                    .to_string();
-                let model = if !settings.image_model.trim().is_empty() {
-                    settings.image_model.trim().to_string()
-                } else if !env_model.is_empty() {
-                    env_model
-                } else {
-                    openai_client::DEFAULT_IMAGE_MODEL.to_string()
-                };
-                (String::new(), base, key, model)
+        let (image_url, image_openai_base, image_api_key, image_model) = if image_provider == PROVIDER_QWEN {
+            let base = openai_client::resolve_qwen_base_url(&settings.image_base_url);
+            let key_settings = settings.image_api_key.trim().to_string();
+            let key = if !key_settings.is_empty() {
+                key_settings
             } else {
-                let raw = if !settings.image_base_url.trim().is_empty() {
-                    settings.image_base_url.trim().to_string()
+                let env_key = openai_client::resolve_qwen_api_key("");
+                if !env_key.is_empty() {
+                    env_key
+                } else if text_provider == PROVIDER_QWEN && !text_api_key.is_empty() {
+                    text_api_key.clone()
                 } else {
-                    crate::dotenv::get_env_var("GEMINI_IMAGE_BASE_URL")
-                        .trim()
-                        .to_string()
-                };
-                let key = if !settings.image_api_key.trim().is_empty() {
-                    settings.image_api_key.trim().to_string()
-                } else {
-                    let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_API_KEY");
-                    if !env_val.trim().is_empty() {
-                        env_val.trim().to_string()
-                    } else if text_provider == PROVIDER_GEMINI && !text_api_key.is_empty() {
-                        text_api_key.clone()
-                    } else {
-                        String::new()
-                    }
-                };
-                let (base, url_model) = if !raw.is_empty() {
-                    parse_proxy_url(&raw)
-                } else {
-                    (String::new(), String::new())
-                };
-                let model = if !settings.image_model.trim().is_empty() {
-                    settings.image_model.trim().to_string()
-                } else {
-                    let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_MODEL");
-                    if !env_val.trim().is_empty() {
-                        env_val.trim().to_string()
-                    } else if !url_model.is_empty() {
-                        url_model
-                    } else {
-                        DEFAULT_IMAGE_MODEL.to_string()
-                    }
-                };
-                let url = build_api_url(&base, &model);
-                (url, String::new(), key, model)
+                    String::new()
+                }
             };
+            let env_model = crate::dotenv::get_env_var("QWEN_IMAGE_MODEL").trim().to_string();
+            let model = if !settings.image_model.trim().is_empty() {
+                settings.image_model.trim().to_string()
+            } else if !env_model.is_empty() {
+                env_model
+            } else {
+                openai_client::QWEN_DEFAULT_IMAGE_MODEL.to_string()
+            };
+            (String::new(), base, key, model)
+        } else if image_provider == PROVIDER_OPENAI {
+            let base = openai_client::resolve_base_url(&settings.image_base_url);
+            let key_settings = settings.image_api_key.trim().to_string();
+            let key = if !key_settings.is_empty() {
+                key_settings
+            } else {
+                let env_key = crate::dotenv::get_env_var("OPENAI_API_KEY").trim().to_string();
+                if !env_key.is_empty() {
+                    env_key
+                } else if text_provider == PROVIDER_OPENAI && !text_api_key.is_empty() {
+                    text_api_key.clone()
+                } else {
+                    String::new()
+                }
+            };
+            let env_model = crate::dotenv::get_env_var("OPENAI_IMAGE_MODEL").trim().to_string();
+            let model = if !settings.image_model.trim().is_empty() {
+                settings.image_model.trim().to_string()
+            } else if !env_model.is_empty() {
+                env_model
+            } else {
+                openai_client::DEFAULT_IMAGE_MODEL.to_string()
+            };
+            (String::new(), base, key, model)
+        } else {
+            let raw = if !settings.image_base_url.trim().is_empty() {
+                settings.image_base_url.trim().to_string()
+            } else {
+                crate::dotenv::get_env_var("GEMINI_IMAGE_BASE_URL").trim().to_string()
+            };
+            let key = if !settings.image_api_key.trim().is_empty() {
+                settings.image_api_key.trim().to_string()
+            } else {
+                let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_API_KEY");
+                if !env_val.trim().is_empty() {
+                    env_val.trim().to_string()
+                } else if text_provider == PROVIDER_GEMINI && !text_api_key.is_empty() {
+                    text_api_key.clone()
+                } else {
+                    String::new()
+                }
+            };
+            let (base, url_model) = if !raw.is_empty() { parse_proxy_url(&raw) } else { (String::new(), String::new()) };
+            let model = if !settings.image_model.trim().is_empty() {
+                settings.image_model.trim().to_string()
+            } else {
+                let env_val = crate::dotenv::get_env_var("GEMINI_IMAGE_MODEL");
+                if !env_val.trim().is_empty() {
+                    env_val.trim().to_string()
+                } else if !url_model.is_empty() {
+                    url_model
+                } else {
+                    DEFAULT_IMAGE_MODEL.to_string()
+                }
+            };
+            let url = build_api_url(&base, &model);
+            (url, String::new(), key, model)
+        };
         let image_timeout = settings.image_timeout_ms;
 
         if text_api_key.is_empty() {
@@ -251,10 +217,8 @@ impl GeminiClients {
         }
 
         // Build HTTP clients
-        let text_client = reqwest::Client::builder()
-            .timeout(Duration::from_millis(text_timeout))
-            .build()
-            .map_err(|e| format!("failed to build text client: {e}"))?;
+        let text_client =
+            reqwest::Client::builder().timeout(Duration::from_millis(text_timeout)).build().map_err(|e| format!("failed to build text client: {e}"))?;
 
         let reuse = text_provider == image_provider
             && text_openai_base == image_openai_base
@@ -265,10 +229,7 @@ impl GeminiClients {
         let image_client = if reuse {
             text_client.clone()
         } else {
-            reqwest::Client::builder()
-                .timeout(Duration::from_millis(image_timeout))
-                .build()
-                .map_err(|e| format!("failed to build image client: {e}"))?
+            reqwest::Client::builder().timeout(Duration::from_millis(image_timeout)).build().map_err(|e| format!("failed to build image client: {e}"))?
         };
 
         let prompts = settings.prompts;
@@ -349,34 +310,13 @@ pub fn parse_proxy_url(full_url: &str) -> (String, String) {
 // Provider dispatchers — used by all high-level helpers below.
 // ---------------------------------------------------------------------------
 
-async fn dispatch_text(
-    clients: &GeminiClients,
-    contents: Value,
-    temperature: f64,
-    max_tries: u32,
-) -> Result<Value, String> {
+async fn dispatch_text(clients: &GeminiClients, contents: Value, temperature: f64, max_tries: u32) -> Result<Value, String> {
     if is_openai_family(&clients.text_provider) {
-        openai_client::call_text(
-            &clients.text_client,
-            &clients.text_openai_base,
-            &clients.text_api_key,
-            &clients.text_model,
-            contents,
-            temperature,
-            max_tries,
-        )
-        .await
+        openai_client::call_text(&clients.text_client, &clients.text_openai_base, &clients.text_api_key, &clients.text_model, contents, temperature, max_tries)
+            .await
     } else {
         let config = text_config(temperature);
-        call_with_retry(
-            &clients.text_client,
-            &clients.text_url,
-            &clients.text_api_key,
-            contents,
-            config,
-            max_tries,
-        )
-        .await
+        call_with_retry(&clients.text_client, &clients.text_url, &clients.text_api_key, contents, config, max_tries).await
     }
 }
 
@@ -402,27 +342,12 @@ async fn dispatch_image(
         .await
     } else {
         let config = image_config(temperature, original_size);
-        call_with_retry(
-            &clients.image_client,
-            &clients.image_url,
-            &clients.image_api_key,
-            contents,
-            config,
-            max_tries,
-        )
-        .await
+        call_with_retry(&clients.image_client, &clients.image_url, &clients.image_api_key, contents, config, max_tries).await
     }
 }
 
 /// POST JSON to Gemini REST endpoint with exponential backoff retry.
-async fn call_with_retry(
-    client: &reqwest::Client,
-    url: &str,
-    api_key: &str,
-    contents: Value,
-    config: Value,
-    max_tries: u32,
-) -> Result<Value, String> {
+async fn call_with_retry(client: &reqwest::Client, url: &str, api_key: &str, contents: Value, config: Value, max_tries: u32) -> Result<Value, String> {
     let mut tries = 0u32;
     let mut last_error = String::new();
 
@@ -440,15 +365,11 @@ async fn call_with_retry(
                 let text = resp.text().await.unwrap_or_default();
 
                 if status.is_success() {
-                    return serde_json::from_str(&text)
-                        .map_err(|e| format!("JSON parse error: {e}"));
+                    return serde_json::from_str(&text).map_err(|e| format!("JSON parse error: {e}"));
                 }
 
                 let err_upper = text.to_uppercase();
-                if PERMANENT_ERROR_KEYWORDS
-                    .iter()
-                    .any(|kw| err_upper.contains(kw))
-                {
+                if PERMANENT_ERROR_KEYWORDS.iter().any(|kw| err_upper.contains(kw)) {
                     eprintln!("  permanent error (not retrying): {text}");
                     return Err(format!("permanent API error: {text}"));
                 }
@@ -466,20 +387,14 @@ async fn call_with_retry(
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
     }
 
-    Err(format!(
-        "model call failed after {max_tries} tries: {last_error}"
-    ))
+    Err(format!("model call failed after {max_tries} tries: {last_error}"))
 }
 
 /// Extract text from Gemini API response.
 pub fn extract_text(response: &Value) -> String {
     if let Some(candidates) = response.get("candidates").and_then(|v| v.as_array()) {
         for c in candidates {
-            if let Some(parts) = c
-                .get("content")
-                .and_then(|c| c.get("parts"))
-                .and_then(|p| p.as_array())
-            {
+            if let Some(parts) = c.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
                 for p in parts {
                     if let Some(t) = p.get("text").and_then(|t| t.as_str()) {
                         let trimmed = t.trim();
@@ -498,18 +413,9 @@ pub fn extract_text(response: &Value) -> String {
 pub fn extract_image_bytes(response: &Value) -> Option<Vec<u8>> {
     if let Some(candidates) = response.get("candidates").and_then(|v| v.as_array()) {
         for c in candidates {
-            if let Some(parts) = c
-                .get("content")
-                .and_then(|c| c.get("parts"))
-                .and_then(|p| p.as_array())
-            {
+            if let Some(parts) = c.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
                 for p in parts {
-                    if let Some(data_str) = p
-                        .get("inlineData")
-                        .or_else(|| p.get("inline_data"))
-                        .and_then(|d| d.get("data"))
-                        .and_then(|d| d.as_str())
-                    {
+                    if let Some(data_str) = p.get("inlineData").or_else(|| p.get("inline_data")).and_then(|d| d.get("data")).and_then(|d| d.as_str()) {
                         if let Ok(bytes) = image_utils::base64_to_bytes(data_str) {
                             return Some(bytes);
                         }
@@ -525,11 +431,7 @@ pub fn extract_image_bytes(response: &Value) -> Option<Vec<u8>> {
 pub fn parse_json(text: &str) -> Result<Value, String> {
     let mut text = text.trim();
     if text.starts_with("```") {
-        text = text
-            .strip_prefix("```json")
-            .or_else(|| text.strip_prefix("```"))
-            .unwrap_or(text)
-            .trim();
+        text = text.strip_prefix("```json").or_else(|| text.strip_prefix("```")).unwrap_or(text).trim();
         if text.ends_with("```") {
             text = &text[..text.len() - 3];
             text = text.trim();
@@ -552,19 +454,12 @@ fn build_text_and_image_contents(text: &str, image_b64: &str) -> Value {
 }
 
 /// Build contents with the source image and optional reference images interleaved.
-pub fn build_contents_with_references(
-    text: &str,
-    image_b64: &str,
-    references: &[ReferenceImage],
-) -> Value {
+pub fn build_contents_with_references(text: &str, image_b64: &str, references: &[ReferenceImage]) -> Value {
     if references.is_empty() {
         return build_text_and_image_contents(text, image_b64);
     }
 
-    let mut parts = vec![
-        json!({"text": text}),
-        json!({"inline_data": {"mime_type": "image/png", "data": image_b64}}),
-    ];
+    let mut parts = vec![json!({"text": text}), json!({"inline_data": {"mime_type": "image/png", "data": image_b64}})];
 
     for (i, ref_img) in references.iter().enumerate() {
         let desc = if ref_img.description.trim().is_empty() {
@@ -584,16 +479,10 @@ fn reference_images_hint(references: &[ReferenceImage]) -> String {
     if references.is_empty() {
         return String::new();
     }
-    let mut hint = String::from(
-        "【参考图像】用户附带了参考图像，请根据每张参考图的说明理解其用途，并在处理时参考相关信息。",
-    );
+    let mut hint = String::from("【参考图像】用户附带了参考图像，请根据每张参考图的说明理解其用途，并在处理时参考相关信息。");
     for (i, ref_img) in references.iter().enumerate() {
         if !ref_img.description.trim().is_empty() {
-            hint.push_str(&format!(
-                "\n  - 参考图 {}：{}",
-                i + 1,
-                ref_img.description.trim()
-            ));
+            hint.push_str(&format!("\n  - 参考图 {}：{}", i + 1, ref_img.description.trim()));
         }
     }
     hint
@@ -681,11 +570,7 @@ fn pick_gemini_image_size(w: u32, h: u32) -> &'static str {
 // ---------------------------------------------------------------------------
 
 /// Detect if image is cosplay photography.
-pub async fn detect_scene_type(
-    image_b64: &str,
-    user_prompt: &str,
-    references: &[ReferenceImage],
-) -> Result<Value, String> {
+pub async fn detect_scene_type(image_b64: &str, user_prompt: &str, references: &[ReferenceImage]) -> Result<Value, String> {
     // Clone clients (drops lock immediately)
     let clients = get_clients()?;
 
@@ -713,31 +598,15 @@ pub async fn detect_scene_type(
         "雷电将军",
     ];
     let prompt_lower = user_prompt.to_lowercase();
-    let matched: Vec<&str> = if !user_prompt.is_empty() {
-        cosplay_keywords
-            .iter()
-            .filter(|kw| prompt_lower.contains(&kw.to_lowercase()))
-            .copied()
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let keyword_hint = if matched.is_empty() {
-        String::new()
-    } else {
-        format!("用户提及关键词：{}", matched.join("、"))
-    };
+    let matched: Vec<&str> =
+        if !user_prompt.is_empty() { cosplay_keywords.iter().filter(|kw| prompt_lower.contains(&kw.to_lowercase())).copied().collect() } else { Vec::new() };
+    let keyword_hint = if matched.is_empty() { String::new() } else { format!("用户提及关键词：{}", matched.join("、")) };
 
     let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
-    let tmpl = clients
-        .prompts
-        .get("detect_scene_type")
-        .unwrap_or_else(|| default_prompts.get("detect_scene_type").unwrap());
-    let prompt = tmpl
-        .replace("{{KEYWORD_HINT}}", &keyword_hint)
-        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
+    let tmpl = clients.prompts.get("detect_scene_type").unwrap_or_else(|| default_prompts.get("detect_scene_type").unwrap());
+    let prompt = tmpl.replace("{{KEYWORD_HINT}}", &keyword_hint).replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
     let contents = build_contents_with_references(&prompt, image_b64, references);
@@ -756,41 +625,17 @@ pub async fn detect_scene_type(
 }
 
 /// Analyze background and recommend replacement.
-pub async fn analyze_background(
-    image_b64: &str,
-    scene: &Value,
-    user_prompt: &str,
-    bg_prompt: &str,
-    references: &[ReferenceImage],
-) -> Result<String, String> {
+pub async fn analyze_background(image_b64: &str, scene: &Value, user_prompt: &str, bg_prompt: &str, references: &[ReferenceImage]) -> Result<String, String> {
     let clients = get_clients()?;
 
-    let cosplay_hint = if scene
-        .get("is_cosplay")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-    {
-        "这是一张 cosplay 摄影。"
-    } else {
-        ""
-    };
-    let user_bg_hint = if !bg_prompt.is_empty() {
-        format!("用户背景偏好：{bg_prompt}")
-    } else {
-        String::new()
-    };
-    let user_request_hint = if !user_prompt.is_empty() && bg_prompt.is_empty() {
-        format!("用户修图需求（供参考）：{user_prompt}")
-    } else {
-        String::new()
-    };
+    let cosplay_hint = if scene.get("is_cosplay").and_then(|v| v.as_bool()).unwrap_or(false) { "这是一张 cosplay 摄影。" } else { "" };
+    let user_bg_hint = if !bg_prompt.is_empty() { format!("用户背景偏好：{bg_prompt}") } else { String::new() };
+    let user_request_hint =
+        if !user_prompt.is_empty() && bg_prompt.is_empty() { format!("用户修图需求（供参考）：{user_prompt}") } else { String::new() };
     let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
-    let tmpl = clients
-        .prompts
-        .get("analyze_background")
-        .unwrap_or_else(|| default_prompts.get("analyze_background").unwrap());
+    let tmpl = clients.prompts.get("analyze_background").unwrap_or_else(|| default_prompts.get("analyze_background").unwrap());
     let prompt = tmpl
         .replace("{{COSPLAY_HINT}}", cosplay_hint)
         .replace("{{USER_BG_HINT}}", &user_bg_hint)
@@ -832,26 +677,16 @@ pub async fn retouch_image(
     } else {
         String::new()
     };
-    let user_section = if !user_prompt.is_empty() {
-        format!("【用户核心需求（最高优先级，必须满足）】\n{user_prompt}")
-    } else {
-        String::new()
-    };
+    let user_section =
+        if !user_prompt.is_empty() { format!("【用户核心需求（最高优先级，必须满足）】\n{user_prompt}") } else { String::new() };
     let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
-    let tmpl = clients
-        .prompts
-        .get("retouch_image")
-        .unwrap_or_else(|| default_prompts.get("retouch_image").unwrap());
-    let prompt = tmpl
-        .replace("{{USER_SECTION}}", &user_section)
-        .replace("{{BG_INSTRUCTION}}", &bg_instruction)
-        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
+    let tmpl = clients.prompts.get("retouch_image").unwrap_or_else(|| default_prompts.get("retouch_image").unwrap());
+    let prompt = tmpl.replace("{{USER_SECTION}}", &user_section).replace("{{BG_INSTRUCTION}}", &bg_instruction).replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let (prompt, mask_refs) =
-        apply_mask_strategy(&clients, &prompt, image_b64, references, mask_b64)?;
+    let (prompt, mask_refs) = apply_mask_strategy(&clients, &prompt, image_b64, references, mask_b64)?;
     let contents = build_contents_with_references(&prompt, image_b64, &mask_refs);
 
     let resp = dispatch_image(&clients, contents, 0.3, 5, original_size, mask_b64).await?;
@@ -903,26 +738,16 @@ pub async fn apply_cosplay_effect(
     } else {
         String::new()
     };
-    let effect_text = if effect_prompt.is_empty() {
-        "根据画面自动判断"
-    } else {
-        effect_prompt
-    };
+    let effect_text = if effect_prompt.is_empty() { "根据画面自动判断" } else { effect_prompt };
     let ref_hint = reference_images_hint(references);
 
     let default_prompts = settings::default_prompts();
-    let tmpl = clients
-        .prompts
-        .get("apply_cosplay_effect")
-        .unwrap_or_else(|| default_prompts.get("apply_cosplay_effect").unwrap());
-    let prompt = tmpl
-        .replace("{{TONE_CONSTRAINT}}", &tone_constraint)
-        .replace("{{EFFECT_PROMPT}}", effect_text)
-        .replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
+    let tmpl = clients.prompts.get("apply_cosplay_effect").unwrap_or_else(|| default_prompts.get("apply_cosplay_effect").unwrap());
+    let prompt =
+        tmpl.replace("{{TONE_CONSTRAINT}}", &tone_constraint).replace("{{EFFECT_PROMPT}}", effect_text).replace("{{REFERENCE_IMAGES_HINT}}", &ref_hint);
     let prompt = prompt.trim().to_string();
 
-    let (prompt, mask_refs) =
-        apply_mask_strategy(&clients, &prompt, image_b64, references, mask_b64)?;
+    let (prompt, mask_refs) = apply_mask_strategy(&clients, &prompt, image_b64, references, mask_b64)?;
     let contents = build_contents_with_references(&prompt, image_b64, &mask_refs);
 
     let resp = dispatch_image(&clients, contents, 0.3, 5, original_size, mask_b64).await?;
@@ -954,16 +779,10 @@ fn apply_mask_strategy(
     if is_openai_family(&clients.image_provider) {
         return Ok((prompt.to_string(), references.to_vec()));
     }
-    let enhanced = format!(
-        "{}\n\n【重要】请仅修改图中用红色半透明标记的区域，保持其余部分完全不变。",
-        prompt
-    );
+    let enhanced = format!("{}\n\n【重要】请仅修改图中用红色半透明标记的区域，保持其余部分完全不变。", prompt);
     let overlay_b64 = image_utils::generate_mask_overlay(image_b64, mask)?;
     let mut refs = references.to_vec();
-    refs.push(ReferenceImage {
-        data: overlay_b64,
-        description: "红色标记区域为需要编辑的部分，请仅修改红色区域".to_string(),
-    });
+    refs.push(ReferenceImage { data: overlay_b64, description: "红色标记区域为需要编辑的部分，请仅修改红色区域".to_string() });
     Ok((enhanced, refs))
 }
 
@@ -978,8 +797,7 @@ pub async fn call_image_generation(
 ) -> Result<Vec<u8>, String> {
     let clients = get_clients()?;
 
-    let (final_prompt, final_refs) =
-        apply_mask_strategy(&clients, prompt, image_b64, references, mask_b64)?;
+    let (final_prompt, final_refs) = apply_mask_strategy(&clients, prompt, image_b64, references, mask_b64)?;
 
     let contents = build_contents_with_references(&final_prompt, image_b64, &final_refs);
     let resp = dispatch_image(&clients, contents, temperature, 5, original_size, mask_b64).await?;
@@ -988,12 +806,7 @@ pub async fn call_image_generation(
 }
 
 /// Generic text model call — sends image + prompt, returns raw JSON response.
-pub async fn call_text_generation(
-    image_b64: &str,
-    prompt: &str,
-    references: &[ReferenceImage],
-    temperature: f64,
-) -> Result<Value, String> {
+pub async fn call_text_generation(image_b64: &str, prompt: &str, references: &[ReferenceImage], temperature: f64) -> Result<Value, String> {
     let clients = get_clients()?;
     let contents = build_contents_with_references(prompt, image_b64, references);
 
@@ -1028,21 +841,8 @@ pub async fn call_text_with_provider(
     if is_openai_family(provider) {
         // Resolve an empty base URL to the provider's default (the review UI
         // advertises "留空使用默认地址").
-        let resolved_base = if provider == PROVIDER_QWEN {
-            openai_client::resolve_qwen_base_url(base_url)
-        } else {
-            openai_client::resolve_base_url(base_url)
-        };
-        openai_client::call_text(
-            &client,
-            &resolved_base,
-            api_key,
-            model,
-            contents,
-            temperature,
-            max_tries,
-        )
-        .await
+        let resolved_base = if provider == PROVIDER_QWEN { openai_client::resolve_qwen_base_url(base_url) } else { openai_client::resolve_base_url(base_url) };
+        openai_client::call_text(&client, &resolved_base, api_key, model, contents, temperature, max_tries).await
     } else {
         // Gemini provider
         let url = build_api_url(base_url, model);
@@ -1085,12 +885,7 @@ mod tests {
         let ic = cfg.get("imageConfig").expect("imageConfig must be present");
         assert_eq!(ic.get("aspectRatio").and_then(|v| v.as_str()), Some("4:3"));
         assert_eq!(ic.get("imageSize").and_then(|v| v.as_str()), Some("4K"));
-        assert_eq!(
-            cfg.get("responseModalities")
-                .and_then(|v| v.as_array())
-                .map(|a| a.len()),
-            Some(2)
-        );
+        assert_eq!(cfg.get("responseModalities").and_then(|v| v.as_array()).map(|a| a.len()), Some(2));
     }
 
     #[test]

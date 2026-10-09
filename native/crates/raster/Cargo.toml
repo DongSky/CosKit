@@ -1,0 +1,20 @@
+[package]
+name = "photocraft-raster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+photocraft-geom = { workspace = true }
+photocraft-color = { workspace = true }
+serde = { workspace = true }
+
+# Destination tiles are independent; the browser retains the sequential path.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

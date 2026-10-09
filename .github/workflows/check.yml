@@ -1,0 +1,28 @@
+name: Verify CosKit Studio
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            native -> target
+            src-tauri -> target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: npm ci
+      - run: npm run check
+      - run: python scripts/audit-release.py
+      - run: npm test
+      - run: npm run check:native
+      - run: cargo test --manifest-path native/Cargo.toml -j 4 -p photocraft-engine -p photocraft-ui-egui -p photocraft --tests
+      - run: cargo test --manifest-path native/Cargo.toml -p photocraft-engine --test panic_hunt -- --ignored

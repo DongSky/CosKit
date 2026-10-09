@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>CosKit</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="studio.css">
 </head>
 <body>
 
@@ -13,6 +14,7 @@
   <div class="header-logo">
     <img src="logo.svg" alt="CosKit" class="header-logo-img">
     <h1>CosKit</h1>
+    <span class="studio-version">1.0 BETA</span>
   </div>
   <div class="header-actions">
     <button id="btn-hamburger" class="header-icon-btn btn-hamburger" title="菜单">
@@ -57,7 +59,7 @@
 <div id="app-shell">
 <aside id="session-sidebar" class="session-sidebar">
   <div class="sidebar-header">
-    <span class="sidebar-title">对话记录</span>
+    <span class="sidebar-title">创作助手</span>
     <button id="drawer-close" class="header-icon-btn sidebar-close" title="关闭">
       <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M5 5l10 10M15 5L5 15"/>
@@ -84,7 +86,7 @@
       <span>尚未配置 API Key，修图前请先完成设置</span>
       <button type="button" id="btn-setup-api" class="api-key-banner-btn">前往设置</button>
     </div>
-    <p class="welcome-title">上传一张图片开始修图</p>
+    <p class="welcome-title">每一处细节，都由你掌控。</p>
     <label class="upload-zone" id="upload-zone">
       <input type="file" id="file-input" accept="image/*" hidden>
       <span class="upload-icon">📎</span>
@@ -92,6 +94,7 @@
       <span class="upload-hint">支持 JPG / PNG / WebP，也可直接拖入窗口</span>
     </label>
     <p id="welcome-prompt-preview" class="welcome-prompt-preview" hidden></p>
+    <button type="button" id="btn-demo" class="studio-demo">打开示例画布，试试本地工具 ↗</button>
     <div class="prompt-chips" id="prompt-chips" role="group" aria-label="示例指令">
       <button type="button" class="prompt-chip" data-prompt="美白磨皮，保持自然肤质，不要过度磨平五官">美白磨皮</button>
       <button type="button" class="prompt-chip" data-prompt="把背景换成清新二次元风格场景，人物边缘自然融合">换二次元背景</button>
@@ -515,7 +518,7 @@ GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-imag
         <div class="about-app">CosKit</div>
         <div class="about-tagline">AI 修图 · 人像 / Cosplay 后期</div>
         <dl class="about-meta">
-          <dt>版本</dt><dd id="about-version">0.1.5</dd>
+          <dt>版本</dt><dd id="about-version">1.0.0-beta.1</dd>
           <dt>发版时间</dt><dd id="about-date">2026-09-09</dd>
           <dt>作者</dt><dd>DongSky</dd>
         </dl>
@@ -584,6 +587,7 @@ GEMINI_IMAGE_BASE_URL=https://your-proxy-url.com/v1beta/models/gemini-3-pro-imag
 <div id="toast-container" class="toast-container" aria-live="polite" aria-relevant="additions"></div>
 
 <script src="mask-editor.js"></script>
+<script src="studio.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

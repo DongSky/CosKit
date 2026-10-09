@@ -427,7 +427,10 @@ pub async fn export_image(
 #[tauri::command]
 pub async fn get_settings() -> Result<Value, String> {
     let s = settings::load_settings();
-    serde_json::to_value(s).map_err(|e| e.to_string())
+    let mut value = serde_json::to_value(s).map_err(|e| e.to_string())?;
+    value["env_configured"] = json!(!crate::dotenv::get_env_var("OPENAI_API_KEY").is_empty()
+        || !crate::dotenv::get_env_var("GEMINI_API_KEY").is_empty());
+    Ok(value)
 }
 
 #[tauri::command(rename_all = "snake_case")]

@@ -38,6 +38,9 @@ pub fn set_custom_data_dir(dir: &str) {
 ///
 /// Falls back to `<exe_parent>/data/` if home directory cannot be determined.
 pub fn data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("COSKIT_DATA_DIR").filter(|v| !v.is_empty()) {
+        return PathBuf::from(path);
+    }
     // Check custom override
     if let Ok(lock) = CUSTOM_DATA_DIR.read() {
         if let Some(ref custom) = *lock {
@@ -54,6 +57,11 @@ pub fn data_dir() -> PathBuf {
 
 /// The platform default data directory (ignoring custom override).
 pub fn default_data_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("COSKIT_DATA_DIR").filter(|v| !v.is_empty()) {
+        let path = PathBuf::from(path);
+        let _ = fs::create_dir_all(&path);
+        return path;
+    }
     // Prefer the runtime-resolved app data dir (set by Tauri at startup).
     // On Android/iOS this is the app-private writable directory.
     if let Ok(lock) = APP_DATA_DIR.read() {
@@ -68,16 +76,12 @@ pub fn default_data_dir() -> PathBuf {
     #[cfg(target_os = "ios")]
     {
         // iOS sandbox: ~/Documents/CosKit
-        dir = std::env::var("HOME")
-            .ok()
-            .map(|h| PathBuf::from(h).join("Documents/CosKit"));
+        dir = std::env::var("HOME").ok().map(|h| PathBuf::from(h).join("Documents/CosKit"));
     }
     #[cfg(target_os = "android")]
     {
         // Fallback only — should be overridden by set_app_data_dir().
-        dir = std::env::var("HOME")
-            .ok()
-            .map(|h| PathBuf::from(h).join("CosKit"));
+        dir = std::env::var("HOME").ok().map(|h| PathBuf::from(h).join("CosKit"));
     }
     #[cfg(target_os = "macos")]
     {
@@ -85,27 +89,15 @@ pub fn default_data_dir() -> PathBuf {
     }
     #[cfg(target_os = "windows")]
     {
-        dir = std::env::var("APPDATA")
-            .ok()
-            .map(|a| PathBuf::from(a).join("CosKit"));
+        dir = std::env::var("APPDATA").ok().map(|a| PathBuf::from(a).join("CosKit"));
     }
-    #[cfg(all(
-        not(target_os = "ios"),
-        not(target_os = "android"),
-        not(target_os = "macos"),
-        not(target_os = "windows")
-    ))]
+    #[cfg(all(not(target_os = "ios"), not(target_os = "android"), not(target_os = "macos"), not(target_os = "windows")))]
     {
         dir = dirs::home_dir().map(|h| h.join(".local/share/CosKit"));
     }
 
-    let dir = dir.unwrap_or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("data")
-    });
+    let dir = dir
+        .unwrap_or_else(|| std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())).unwrap_or_else(|| PathBuf::from(".")).join("data"));
 
     let _ = fs::create_dir_all(&dir);
     dir
@@ -181,7 +173,12 @@ pub fn default_prompts() -> HashMap<String, String> {
 }
 
 pub fn default_settings() -> Settings {
-    Settings::default()
+    let mut settings = Settings::default();
+    if !crate::dotenv::get_env_var("OPENAI_API_KEY").is_empty() && crate::dotenv::get_env_var("GEMINI_API_KEY").is_empty() {
+        settings.text_provider = "openai".into();
+        settings.image_provider = "openai".into();
+    }
+    settings
 }
 
 /// Load settings from settings.json, merging with defaults.
@@ -275,10 +272,7 @@ pub fn load_settings() -> Settings {
                 if let Some(v) = saved.get("custom_data_dir").and_then(|v| v.as_str()) {
                     settings.custom_data_dir = v.to_string();
                 }
-                if let Some(v) = saved
-                    .get("pixelfree_agreement_accepted")
-                    .and_then(|v| v.as_bool())
-                {
+                if let Some(v) = saved.get("pixelfree_agreement_accepted").and_then(|v| v.as_bool()) {
                     settings.pixelfree_agreement_accepted = v;
                 }
                 settings

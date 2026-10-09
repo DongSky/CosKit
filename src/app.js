@@ -309,7 +309,7 @@
             if (i >= 0) stubSessions.splice(i, 1);
             return { ok: true };
           }
-          return {};
+          throw new Error("此操作需要在 CosKit 桌面应用中运行（npm run dev）");
         },
       },
     };
@@ -358,6 +358,15 @@
       get(_, method) {
         return (...args) => {
           const argMap = _buildArgs(method, args);
+          if (["update_layer", "reorder_layer", "delete_layer"].includes(method)) {
+            const operation = {update_layer:"layer_props",reorder_layer:"layer_reorder",delete_layer:"layer_delete"}[method];
+            const params = method === "update_layer" ? argMap.props : method === "reorder_layer" ? {index:argMap.new_index} : {};
+            return invoke("apply_local_edit", {session_id:argMap.session_id,node_id:argMap.node_id,request:{operation,layer_id:argMap.layer_id,params}}).then(async node => {
+              viewerNodeId = node.id;
+              await window.studio.bridge.accept(node.id,argMap.session_id);
+              return {ok:true};
+            });
+          }
           return invoke(method, argMap);
         };
       }
@@ -481,6 +490,8 @@
       clearMask();
       await refreshSession();
       showChatMode();
+    } catch (err) {
+      showToast("打开图片失败: " + String(err), "error");
     } finally {
       uploading = false;
       welcome.style.pointerEvents = "";
@@ -784,6 +795,7 @@
       return;
     }
     if (canvasEmpty) canvasEmpty.hidden = true;
+    if (window.studio) await window.studio.setContext(sessionData, node);
     if (node.status === "processing" || node.status === "pending") {
       if (canvasImage) canvasImage.hidden = true;
       if (canvasProcessing) {
@@ -807,7 +819,9 @@
       canvasImage.dataset.sessionId = currentSessionId;
       canvasImage.dataset.nodeId = node.id;
       const dataUrl = await api().get_image(currentSessionId, node.id, false);
-      if (dataUrl) canvasImage.src = dataUrl;
+      if (dataUrl && currentSessionId === canvasImage.dataset.sessionId && getCanvasNodeId() === node.id) {
+        canvasImage.src = dataUrl;
+      }
     }
   }
 
@@ -1841,6 +1855,7 @@
   }
 
   function showWelcomeMode() {
+    if (window.studio) window.studio.reset();
     document.body.dataset.workspace = "welcome";
     welcome.style.display = "flex";
     if (canvasView) {
@@ -1869,6 +1884,7 @@
 
   function apiKeysAppearUnset(settings) {
     if (!settings) return false;
+    if (settings.env_configured) return false;
     const text = (settings.text_api_key || "").trim();
     const image = (settings.image_api_key || "").trim();
     return !text && !image;
@@ -2387,8 +2403,11 @@
     const imgDataUrl = await api().get_image(currentSessionId, parentId, false);
     if (!imgDataUrl || imgDataUrl.error) return;
     // Detect image dimensions from the session data
-    const w = sessionData.original_size ? sessionData.original_size[0] : 1024;
-    const h = sessionData.original_size ? sessionData.original_size[1] : 1024;
+    const maskImage = new Image();
+    maskImage.src = imgDataUrl;
+    await maskImage.decode();
+    const w = maskImage.naturalWidth;
+    const h = maskImage.naturalHeight;
     // Restore the existing mask only if it was drawn for this same parent
     const existingMask = currentMaskParentId === parentId ? currentMaskDataUrl : null;
     window.maskEditor.open(imgDataUrl, w, h, existingMask);
@@ -2412,6 +2431,7 @@
   }
 
   function updateMaskButtonState() {
+    if (window.studio) window.studio.el('selection-state').textContent = currentMaskDataUrl ? '选区已启用 · AI 与本地编辑共用' : '未设置 · 编辑整个图层';
     const btn = document.getElementById("btn-mask");
     if (currentMaskDataUrl) {
       btn.classList.add("has-mask");
@@ -2848,6 +2868,38 @@
   welcome.addEventListener("drop", onWelcomeDrop);
 
   // ── Init ───────────────────────────────────────────────
+  document.getElementById('btn-demo').addEventListener('click', () => {
+    const demo = document.createElement('canvas'); demo.width = 1200; demo.height = 800;
+    const ctx = demo.getContext('2d');
+    ctx.fillStyle = '#142336'; ctx.fillRect(0, 0, 1200, 800);
+    ctx.fillStyle = '#f1d49c'; ctx.beginPath(); ctx.arc(815, 185, 95, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#25384a'; ctx.fillRect(0, 520, 1200, 280);
+    for (const [color, points] of [['#516b83', [[0,560],[350,170],[690,560]]], ['#395268', [[300,650],[760,280],[1200,650]]]]) {
+      ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(...points[0]); points.slice(1).forEach(p => ctx.lineTo(...p)); ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#d2b98d'; ctx.fillRect(100, 690, 440, 4); ctx.font = '16px sans-serif'; ctx.fillText('COSKIT STUDIO / YOUR NEXT CREATION', 100, 738);
+    demo.toBlob(blob => { if (blob) handleUpload(new File([blob], 'CosKit-demo.png', {type:'image/png'})); });
+  });
+  window.studio = new CosKitStudio({
+    invoke,
+    toast: showToast,
+    mask: () => currentMaskParentId === getCanvasNodeId() ? currentMaskDataUrl : null,
+    clearMask,
+    accept: async (id, sessionId, preserveMask = false) => {
+      if (sessionId !== currentSessionId) return;
+      selectedCanvasNodeId = id;
+      clearEditFrom();
+      if (preserveMask && currentMaskDataUrl) currentMaskParentId = id;
+      else clearMask();
+      await refreshSession();
+    },
+    navigate: async (id) => {
+      await api().goto_node(currentSessionId, id);
+      selectedCanvasNodeId = id;
+      clearEditFrom(); clearMask();
+      await refreshSession();
+    },
+  });
   async function init() {
     await waitForApi();
 

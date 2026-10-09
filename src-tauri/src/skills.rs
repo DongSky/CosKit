@@ -109,19 +109,13 @@ pub fn builtin_skills() -> Vec<SkillDef> {
 }
 
 pub fn skill_registry() -> HashMap<String, SkillDef> {
-    builtin_skills()
-        .into_iter()
-        .map(|s| (s.id.clone(), s))
-        .collect()
+    builtin_skills().into_iter().map(|s| (s.id.clone(), s)).collect()
 }
 
 pub fn skills_catalog_for_planner() -> String {
     let mut catalog = String::from("可用技能列表：\n");
     for skill in builtin_skills() {
-        catalog.push_str(&format!(
-            "\n- id: \"{}\"\n  名称: {}\n  说明: {}\n  类别: {}\n",
-            skill.id, skill.name, skill.description, skill.category
-        ));
+        catalog.push_str(&format!("\n- id: \"{}\"\n  名称: {}\n  说明: {}\n  类别: {}\n", skill.id, skill.name, skill.description, skill.category));
     }
     catalog
 }

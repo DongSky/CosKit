@@ -1,8 +1,16 @@
 {
   "name": "coskit",
-  "version": "0.1.5",
+  "version": "1.0.0",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "dev": "node scripts/native.mjs dev",
+    "build": "node scripts/native.mjs build",
+    "check": "node --check src/app.js && node --check src/studio.js && node --check src/mask-editor.js && node --check website/coskit/coskit.js",
+    "test": "python scripts/check-native-parity.py && cargo test --manifest-path native/Cargo.toml --workspace --lib",
+    "dev:legacy": "node scripts/dev.mjs",
+    "build:legacy": "tauri build",
+    "test:legacy": "node --test tests/*.test.cjs && cargo test --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path src-tauri/vendor/photocraft-retouch/Cargo.toml",
+    "check:native": "cargo check --manifest-path native/Cargo.toml -p photocraft --features heif"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
