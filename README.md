@@ -24,7 +24,15 @@
 
 ## 演示与教程
 
-v1.0.0 准备了真实窗口录制的功能介绍与新手教程、修图前后对比、原尺寸细节和参数编辑截图。**按作者要求，演示照片、视频和工程素材单独本地交付，不随源码推送。** 宣传页源码在 [website/coskit](website/coskit)，接入 `prts.si/coskit/` 的说明见 [website/README.md](website/README.md)。页面上线前可先本地预览。
+真实工作台截图：在同一画布中使用基础编辑、AI 对话修图和缩略图版本条。
+
+![CosKit 1.0.0 工作台：花间人像、AI 修图对话与版本缩略图](docs/images/coskit-v1-workspace.jpg)
+
+修图前后对比（左为原片，右为演示成片）：调整通透感、色彩与柔光，修图过程中画布保持 **1620 × 1080**；下图为缩放后的展示图。
+
+![花间人像修图对比：左侧原片，右侧调色与柔光后的成片](docs/images/coskit-v1-before-after.jpg)
+
+本节公开两张已清除元数据的展示图；完整功能介绍与新手教程视频、原始照片和工程素材单独本地交付。宣传页源码在 [website/coskit](website/coskit)，接入 `prts.si/coskit/` 的说明见 [website/README.md](website/README.md)。页面上线前可先本地预览。
 
 [v0.1.x 历史演示（B 站）](https://www.bilibili.com/video/BV1j97U6VEwE)
 

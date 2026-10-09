@@ -24,7 +24,15 @@ The editor retains the integrated reference project's functionality. This is not
 
 ## Demo and tutorial
 
-Version 1.0.0 includes a recorded walkthrough, before/after comparisons, and detail/parameter screenshots. **At the author's request, photos, videos and project media are delivered locally and are not pushed with the source.** The promotional page lives in [website/coskit](website/coskit); [integration instructions](website/README.md) describe deployment under `prts.si/coskit/` and local preview before it goes live.
+A real workspace capture showing native editing, AI conversation and thumbnail version history around the same canvas.
+
+![CosKit 1.0.0 workspace with a floral portrait, AI conversation and version thumbnails](docs/images/coskit-v1-workspace.jpg)
+
+Before and after (original on the left, demo result on the right): clarity, color and soft-light adjustments. The canvas stayed at **1620 × 1080** throughout editing; the comparison below is resized for display.
+
+![Floral portrait comparison: original on the left, color and soft-light edits on the right](docs/images/coskit-v1-before-after.jpg)
+
+These two preview images are published with metadata removed. The full walkthrough and tutorial video, original photos and project media are delivered separately and kept local. The promotional page lives in [website/coskit](website/coskit); [integration instructions](website/README.md) describe deployment under `prts.si/coskit/` and local preview before it goes live.
 
 [Historical v0.1.x demo on Bilibili](https://www.bilibili.com/video/BV1j97U6VEwE)
 
