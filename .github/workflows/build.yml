@@ -1,13 +1,34 @@
 name: Build CosKit Native Studio
 on:
   push:
+    branches: [main]
     tags: ['v*']
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_BUILD_JOBS: 3
+  CARGO_INCREMENTAL: 0
+  MACOSX_DEPLOYMENT_TARGET: '11.0'
 jobs:
-  windows:
-    runs-on: windows-latest
+  desktop:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows-x64
+            runner: windows-latest
+          - platform: macOS-arm64
+            runner: macos-15
+          - platform: macOS-x64
+            runner: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,15 +41,30 @@ jobs:
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: native -> target
+          key: release-${{ matrix.platform }}
       - run: python scripts/check-native-parity.py
-      - run: npm run build
-      - run: choco install nsis -y --no-progress
-      - shell: pwsh
+      - name: Build desktop and CLI with HEIF
+        run: npm run build -- --locked
+      - name: Smoke test CLI
+        shell: bash
+        run: |
+          native/target/release/photocraft-cli --version
+          native/target/release/photocraft-cli commands --json > commands.json
+          python -c "import json; assert json.load(open('commands.json', encoding='utf-8'))"
+      - if: runner.os == 'Windows'
+        run: choco install nsis -y --no-progress
+      - if: runner.os == 'Windows'
+        shell: pwsh
         run: ./scripts/package-native.ps1 -Makensis "${env:ProgramFiles(x86)}/NSIS/makensis.exe"
+      - if: runner.os == 'macOS'
+        name: Package and verify CosKit.app and CLI
+        run: python scripts/package-macos.py
       - uses: actions/upload-artifact@v4
         with:
-          name: CosKit-Windows-x64
+          name: CosKit-${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
           path: |
             dist/*setup.exe
-            dist/*portable.zip
+            dist/*.zip
             dist/SHA256SUMS-*.txt

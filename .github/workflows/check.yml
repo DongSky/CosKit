@@ -1,10 +1,25 @@
 name: Verify CosKit Studio
-on: [push, pull_request]
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  CARGO_BUILD_JOBS: 3
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  MACOSX_DEPLOYMENT_TARGET: '11.0'
 jobs:
   test:
-    runs-on: windows-latest
+    name: Test ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, macos-15-intel]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -13,16 +28,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: |
-            native -> target
-            src-tauri -> target
+          workspaces: native -> target
+          key: tests-${{ matrix.os }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       - run: npm ci
       - run: npm run check
       - run: python scripts/audit-release.py
-      - run: npm test
-      - run: npm run check:native
-      - run: cargo test --manifest-path native/Cargo.toml -j 4 -p photocraft-engine -p photocraft-ui-egui -p photocraft --tests
-      - run: cargo test --manifest-path native/Cargo.toml -p photocraft-engine --test panic_hunt -- --ignored
+      - run: python scripts/check-native-parity.py
+      - run: cargo test --locked --manifest-path native/Cargo.toml --workspace --lib
+      - run: cargo test --locked --manifest-path native/Cargo.toml -p photocraft-engine -p photocraft-ui-egui -p photocraft --features photocraft/heif --tests
+      - run: cargo test --locked --manifest-path native/Cargo.toml -p photocraft-engine --test panic_hunt -- --ignored
