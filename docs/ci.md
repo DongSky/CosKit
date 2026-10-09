@@ -1,6 +1,6 @@
 # 桌面持续集成 / Desktop CI
 
-两个工作流均覆盖 Windows x64、macOS Apple Silicon (`macos-15`) 和 Intel (`macos-15-intel`)，任意平台失败都会使对应工作流失败，不使用 `continue-on-error`。三平台独立执行；较新的同分支提交会取消旧任务，避免重复编译。
+两个工作流均覆盖 Windows x64、macOS Apple Silicon (`macos-15`) 和 Intel (`macos-15-intel`)，任意平台失败都会使对应工作流失败，不使用 `continue-on-error`。三平台独立执行；PR 的新提交取消旧任务，main 和标签任务按各自 ref 串行完成，以保留当前验收结果和编译缓存。
 
 ## 构建与产物
 
@@ -24,7 +24,7 @@ CI 成功证明该提交在指定 runner 上完成上述检查，不代表所有
 
 ## English
 
-Both workflows cover Windows x64, macOS Apple Silicon and Intel. Builds run for main pushes, pull requests, version tags and manual dispatch; tests run for pushes, pull requests and manual dispatch. Every platform is required for its workflow to succeed. New runs supersede older runs on the same ref.
+Both workflows cover Windows x64, macOS Apple Silicon and Intel. Builds run for main pushes, pull requests, version tags and manual dispatch; tests run for pushes, pull requests and manual dispatch. Every platform is required for its workflow to succeed. New PR runs supersede older runs; main and tag runs finish serially per ref to preserve validation results and build caches.
 
 Release builds include the desktop editor, CLI and HEIF support, followed by CLI smoke checks and packaging. Windows produces an installer and portable ZIP. macOS produces an ad-hoc-signed app/CLI ZIP, verifies architecture and metadata, then verifies signatures and CLI execution after extraction. Artifacts include SHA-256 manifests and expire after 14 days.
 

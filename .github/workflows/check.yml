@@ -4,7 +4,7 @@ permissions:
   contents: read
 concurrency:
   group: check-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   CARGO_BUILD_JOBS: 3
   CARGO_INCREMENTAL: 0
@@ -30,6 +30,7 @@ jobs:
         with:
           workspaces: native -> target
           key: tests-${{ matrix.os }}
+          cache-on-failure: true
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'

@@ -9,7 +9,7 @@ permissions:
   contents: read
 concurrency:
   group: build-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
   CARGO_BUILD_JOBS: 3
   CARGO_INCREMENTAL: 0
@@ -42,6 +42,7 @@ jobs:
         with:
           workspaces: native -> target
           key: release-${{ matrix.platform }}
+          cache-on-failure: true
       - run: python scripts/check-native-parity.py
       - name: Build desktop and CLI with HEIF
         run: npm run build -- --locked

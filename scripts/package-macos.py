@@ -17,7 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def run(*args):
-    subprocess.run([str(a) for a in args], check=True)
+    command = [str(a) for a in args]
+    print('+ ' + ' '.join(command), flush=True)
+    result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    print(result.stdout, end='', flush=True)
+    if result.returncode:
+        raise RuntimeError(f'{command[0]} failed ({result.returncode}): {result.stdout}')
 
 
 def bundle_info(version):
@@ -101,7 +106,8 @@ def main():
         )
         run('plutil', '-lint', contents / 'Info.plist')
         for binary in (contents / 'MacOS/CosKit', stage / 'coskit-cli'):
-            run('lipo', '-verify_arch', platform.machine(), binary)
+            # Apple's lipo consumes every argument after -verify_arch as an architecture.
+            run('lipo', binary, '-verify_arch', platform.machine())
             run('codesign', '--force', '--sign', '-', '--timestamp=none', binary)
         run('codesign', '--force', '--sign', '-', '--timestamp=none', app)
         run('codesign', '--verify', '--deep', '--strict', app)
@@ -112,7 +118,8 @@ def main():
         run('codesign', '--verify', '--deep', '--strict', extracted / 'CosKit/CosKit.app')
         run('codesign', '--verify', '--strict', extracted / 'CosKit/coskit-cli')
         run(extracted / 'CosKit/coskit-cli', '--version')
-    digest = hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest()
+    with archive.open('rb') as stream:
+        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
     (dist / f'SHA256SUMS-{version}-macOS-{arch}.txt').write_text(
         f'{digest}  {archive.name}\n', encoding='ascii',
     )
@@ -120,4 +127,10 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as error:
+        if os.environ.get('GITHUB_ACTIONS') == 'true':
+            message = str(error).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print(f'::error title=macOS packaging::{message}', flush=True)
+        raise
