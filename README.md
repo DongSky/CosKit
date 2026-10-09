@@ -4,6 +4,8 @@
 
 简体中文 · [English](README.en.md)
 
+[![桌面构建](https://github.com/DongSky/CosKit/actions/workflows/build.yml/badge.svg)](https://github.com/DongSky/CosKit/actions/workflows/build.yml) [![测试](https://github.com/DongSky/CosKit/actions/workflows/check.yml/badge.svg)](https://github.com/DongSky/CosKit/actions/workflows/check.yml)
+
 这是 CosKit 的**第一个正式版本**，由 **凉月 / Suzutsuki** 独立维护。CosKit v0.1.x 预览版及对话修图能力先独立完成；v1.0 在既有产品方向上整合 PhotoCraft 的原生编辑器，补齐基础图像编辑，并加入自主修图 Harness、MCP、CKPipe 工程和全新工作台。
 
 [发行页](https://github.com/DongSky/CosKit/releases) · [新手指南](docs/getting-started-v1.md) · [版本说明](docs/release-1.0.0.md) · [MCP](docs/coskit-mcp.md) · [致谢](ACKNOWLEDGEMENTS.md)
@@ -38,7 +40,7 @@
 
 ## 安装
 
-本次正式版验证与打包平台为 **Windows x64**。其他桌面平台保留源码构建路径，尚未完成本次发行验收；Android 在 TODO 中。
+v1.0.0 首发的交互验收平台为 **Windows x64**。持续集成覆盖 **Windows x64、macOS Apple Silicon 和 Intel** 的原生构建与测试；构建状态以上方徽章为准。macOS 的 CI 验证不替代实机图形交互验收；Android 在 TODO 中。
 
 在 [Releases](https://github.com/DongSky/CosKit/releases) 查看可用附件；v1.0.0 的发布文件名为：
 
@@ -47,6 +49,8 @@
 - `SHA256SUMS-1.0.0.txt`：校验文件。附件以发行页实际上传内容为准，源码和标签不等于二进制已上传。
 
 安装版设置默认在 `%APPDATA%/CosKit`，便携版在程序旁的 `CosKitData`。程序未进行商业代码签名。升级前建议保留已有工程备份。
+
+**macOS / CI 构建包**：打开 [桌面构建](https://github.com/DongSky/CosKit/actions/workflows/build.yml)，选择对应提交的成功任务，在 Artifacts 下载 `CosKit-macOS-arm64`（Apple Silicon）或 `CosKit-macOS-x64`（Intel）。解压其中的发行 ZIP，将 `CosKit.app` 拖入“应用程序”；同包提供 `coskit-cli` 和 SHA-256 校验文件。macOS 包使用临时签名，尚未经过 Apple 公证；系统拦截时，仅对确认来源可信的包在“隐私与安全性”中选择“仍要打开”。CI 附件保留 14 天，正式附件以 Releases 为准。
 
 ## 五分钟上手
 
@@ -92,6 +96,8 @@ pwsh -File scripts/package-native.ps1 -BuildDir native/target-release/release
 ```
 
 输出安装包、便携 ZIP 和 SHA-256 校验文件到 `dist/`。脚本使用打包白名单，不收集 `.env`、测试照片或私人配置。NSIS 未在 PATH 中时可传 `-Makensis` 指定工具路径。
+
+macOS 先安装 Xcode Command Line Tools，再运行 `npm run build -- --locked` 和 `python3 scripts/package-macos.py`，在 `dist/` 获得当前机器架构的应用/CLI ZIP 与校验文件。[CI 说明](docs/ci.md)列出了三平台检查、产物和验证边界。
 
 ```sh
 npm test

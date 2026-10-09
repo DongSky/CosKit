@@ -4,6 +4,8 @@
 
 [简体中文](README.md) · English
 
+[![Desktop builds](https://github.com/DongSky/CosKit/actions/workflows/build.yml/badge.svg)](https://github.com/DongSky/CosKit/actions/workflows/build.yml) [![Tests](https://github.com/DongSky/CosKit/actions/workflows/check.yml/badge.svg)](https://github.com/DongSky/CosKit/actions/workflows/check.yml)
+
 This is CosKit's **first stable release**, independently maintained by **Suzutsuki / 凉月**. CosKit's v0.1.x preview and conversational editing existed before this integration. Version 1.0 builds on that foundation, incorporates PhotoCraft's native editor to complete the basic editing toolkit, and adds an autonomous harness, MCP, CKPipe projects, and a new workspace.
 
 [Releases](https://github.com/DongSky/CosKit/releases) · [Getting started](docs/getting-started-v1.md) · [Release notes](docs/release-1.0.0.md) · [MCP](docs/coskit-mcp.md) · [Acknowledgements](ACKNOWLEDGEMENTS.md)
@@ -38,7 +40,7 @@ These two preview images are published with metadata removed. The full walkthrou
 
 ## Install
 
-The validated and packaged platform for this release is **Windows x64**. Other desktop platforms retain source build paths but have not passed this release's platform validation. Android is on the roadmap.
+The initial v1.0.0 interactive release validation was on **Windows x64**. CI covers native builds and tests on **Windows x64, macOS Apple Silicon and Intel**; the badges above show current results. macOS CI does not replace hands-on graphical validation. Android is on the roadmap.
 
 Check [Releases](https://github.com/DongSky/CosKit/releases) for available attachments. The v1.0.0 package names are:
 
@@ -47,6 +49,8 @@ Check [Releases](https://github.com/DongSky/CosKit/releases) for available attac
 - `SHA256SUMS-1.0.0.txt`: checksums. A source tag does not mean binary attachments have already been uploaded; check the actual release assets.
 
 Installed settings use `%APPDATA%/CosKit`; portable settings use `CosKitData` beside the executable. The binaries are not commercially code-signed. Keep a backup of existing projects before upgrading.
+
+**macOS / CI builds**: open [Desktop builds](https://github.com/DongSky/CosKit/actions/workflows/build.yml), select a successful run for the desired commit, and download `CosKit-macOS-arm64` (Apple Silicon) or `CosKit-macOS-x64` (Intel) under Artifacts. Extract the release ZIP inside and drag `CosKit.app` into Applications. The archive also includes `coskit-cli`, with a SHA-256 manifest alongside it. macOS bundles are ad-hoc signed and are not Apple-notarized. If macOS blocks a trusted build, use **Privacy & Security → Open Anyway**. CI artifacts expire after 14 days; check Releases for permanent release attachments.
 
 ## Start editing
 
@@ -92,6 +96,8 @@ pwsh -File scripts/package-native.ps1 -BuildDir native/target-release/release
 ```
 
 The installer, portable ZIP and SHA-256 manifest are written to `dist/`. An explicit packaging allowlist excludes model secrets, test photos and private settings. Pass `-Makensis` if NSIS is not on PATH.
+
+On macOS, install Xcode Command Line Tools, then run `npm run build -- --locked` and `python3 scripts/package-macos.py`. The app/CLI ZIP for the host architecture and its checksum are written to `dist/`. See [CI coverage](docs/ci.md) for platform jobs, artifacts and validation boundaries.
 
 ```sh
 npm test

@@ -1135,6 +1135,7 @@
     "crates/raster/Cargo.toml": "CosKit beta.7 P0: Native-only Rayon for independent whole-pixel destination tiles; sequential WASM retained. See integration-diff.patch.",
     "crates/raster/src/lib.rs": "CosKit beta.7 P0: Parallel whole-pixel translation with raw encoded-sample/default/COW regression tests; identical dimensions, depths and pixel results. See integration-diff.patch.",
     "crates/ui-egui/src/discard_ui.rs": "CosKit beta.7 P0: Close/exit wait for successful background save; error/cancel keep dirty documents open. See integration-diff.patch.",
-    "crates/ui-egui/src/jobs_ui.rs": "CosKit beta.7 P0: Update GPU resource budget after metadata-only project tasks. See integration-diff.patch."
+    "crates/ui-egui/src/jobs_ui.rs": "CosKit beta.7 P0: Update GPU resource budget after metadata-only project tasks. See integration-diff.patch.",
+    "apps/photocraft/tests/mac_menu_appkit.rs": "CosKit macOS CI: update AppKit integration test menu-name expectations to the existing CosKit product branding; preserve all native key-event and menu behavior assertions. See integration-diff.patch."
   }
 }
