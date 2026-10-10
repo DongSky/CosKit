@@ -14,6 +14,10 @@
 
 macOS 应用包含 CKPipe、PCraft、PSD 等文件关联、CosKit 图标和第三方许可证。签名是无需私钥的 ad-hoc 签名，尚无 Developer ID 签名或 Apple 公证。CI 不自动上传 GitHub Release，也不部署网站。
 
+## 正式发行
+
+[Publish CosKit Release](../.github/workflows/release.yml) 独立于构建运行。维护者更新 `.github/release.json` 后，工作流核对指定成功构建的提交、标签与产物来源，下载三平台产物，检查完整附件清单和 SHA-256，再先上传草稿、最后公开为正式 Release。已有公开发行不会被覆盖；不移动已有标签。此流程需要 `contents: write`，普通构建和测试仍仅使用读取权限。v1.0.0 的构建提交与标签之间仅允许明确列出的文档、CI、打包及测试差异，不允许应用代码变化。
+
 ## 测试
 
 [Verify CosKit Studio](../.github/workflows/check.yml) 在 push、PR 和手动触发时执行：前端/宣传页脚本语法、发布脱敏检查、源码完整性、全部原生库测试、引擎/UI/桌面应用测试（含 HEIF），以及显式启用的异常参数 panic 检查。macOS 应用集成测试包含真实 AppKit 菜单测试。
