@@ -14,7 +14,10 @@ PLATFORMS = {'CosKit-Windows-x64', 'CosKit-macOS-arm64', 'CosKit-macOS-x64'}
 
 
 def command(*args):
-    return subprocess.check_output(args, cwd=ROOT, text=True).strip()
+    result = subprocess.run(args, cwd=ROOT, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    if result.returncode:
+        raise RuntimeError(f'{args[0]} {args[1]} failed: {result.stderr.strip()}')
+    return result.stdout.strip()
 
 
 def api(path):
@@ -97,7 +100,7 @@ def publish():
                 '--title', f'CosKit {tag} — First stable release / 首个正式版本',
                 '--notes-file', str(ROOT / CONFIG['notes']))
     command('gh', 'release', 'upload', tag, '--repo', REPO, '--clobber', *map(str, files.values()))
-    release = api(f'releases/tags/{tag}')
+    release = next(r for r in api('releases?per_page=100') if r['tag_name'] == tag)
     assert {a['name']: a['size'] for a in release['assets']} == {n: p.stat().st_size for n, p in files.items()}
     command('gh', 'release', 'edit', tag, '--repo', REPO, '--draft=false', '--latest',
             '--notes-file', str(ROOT / CONFIG['notes']))
@@ -105,4 +108,9 @@ def publish():
 
 
 if __name__ == '__main__':
-    {'verify': verify, 'publish': publish}[sys.argv[1]]()
+    try:
+        {'verify': verify, 'publish': publish}[sys.argv[1]]()
+    except Exception as error:
+        message = str(error).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print(f'::error title=Release publishing::{type(error).__name__}: {message}', flush=True)
+        raise
