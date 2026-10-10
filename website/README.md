@@ -25,7 +25,7 @@ python -m http.server 8080 --bind 127.0.0.1 --directory website
 </a>
 ```
 
-4. 检查下载入口。当前指向项目 Releases 列表，不假设尚未上传的二进制附件已经存在；正式附件上传后可以换成确定的版本下载地址。
+4. 检查下载入口。当前指向已发布的 v1.0.0，包含 Windows 安装版、便携版和 macOS Apple Silicon / Intel ZIP。
 5. 推荐响应头 `X-Content-Type-Options: nosniff`，HTML 使用 `text/html; charset=utf-8`，VTT 使用 `text/vtt; charset=utf-8`；视频支持 Range 请求。MP4 已准备 faststart。
 6. 检查桌面/手机布局、键盘操作比较滑杆、视频播放、字幕和赞助链接。
 
@@ -34,3 +34,15 @@ python -m http.server 8080 --bind 127.0.0.1 --directory website
 `workspace.webp`, `before.webp`, `after.webp`, `ai-review.webp`, `brush.webp`, `parameters.webp`, `detail.webp`, `tutorial-poster.jpg`, `social-card.jpg`, `coskit-tutorial.mp4`, `tutorial.zh.vtt`, `tutorial.en.vtt`。
 
 页面注明真实窗口由 MCP 驱动、等待片段加速、旁白为合成语音。原图与修图结果属于用户提供的独立演示素材，不随代码许可证重新授权。
+
+## 重建教程
+
+在仓库根目录准备 Python 环境，安装 Pillow；另建语音 venv 安装 `edge-tts`，并安装 FFmpeg。在线语音服务只接收公开解说文本，不上传照片或工程。默认声线为 `zh-CN-XiaoxiaoNeural`，语速降低 4%；不再默认使用 Windows 离线语音。
+
+```sh
+python scripts/render-release-media.py --media /path/to/recorded-demo --advanced --voice-python /path/to/voice-venv/python --voice zh-CN-XiaoxiaoNeural
+```
+
+素材目录须包含录屏脚本产出的截图、导出图、`recordings/timeline.json` 和真实窗口录屏。渲染器生成中文神经旁白、中英文字幕、1080p 教程及网页素材，旁白指纹缓存允许中断后继续。服务失败会明确报错，不静默换回旧声线。`video/voice-manifest.json` 记录声线及合成来源。公开解说不含私人路径与模型配置。
+
+角色创作依据见 [神里绫华演示参考](../docs/demo-ayaka-brief.md)。

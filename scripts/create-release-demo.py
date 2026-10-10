@@ -17,8 +17,13 @@ def main():
     parser.add_argument('--output', type=pathlib.Path, required=True)
     parser.add_argument('--ai-data', type=pathlib.Path, required=True)
     parser.add_argument('--port', type=int, default=50531)
+    parser.add_argument('--advanced', action='store_true', help='Full background, lighting and skin-retouch demo')
+    parser.add_argument('--prompt-file', type=pathlib.Path, help='UTF-8 creative brief, including verified character context')
     args = parser.parse_args()
+    if args.advanced and not args.prompt_file:
+        parser.error("--advanced requires --prompt-file with a verified creative brief")
     out = args.output.resolve()
+    project_path = 'exports/雪霁·庭前试刀.ckpipe' if args.advanced else 'exports/花间·演示.ckpipe'
     for folder in ('originals','screenshots','recordings','exports','video'):
         (out/folder).mkdir(parents=True, exist_ok=True)
     original = ImageOps.exif_transpose(Image.open(args.image)).convert('RGB')
@@ -55,14 +60,17 @@ def main():
             m.tool('doc_open',{'path':'originals/source.png'})
             m.control('ui.set',{'fit':True})
             m.command('coskit.project.checkpoint',{'label':'原片 · 花间'})
-            m.control('app.save',{'path':'exports/花间·演示.ckpipe'})
+            m.control('app.save',{'path':project_path})
             time.sleep(5);shot('before')
             mark('ai')
-            m.tool('ai_configure',{'harness_enabled':True,'harness_max_steps':16,'harness_max_images':0,'harness_max_rollbacks':3})
+            m.tool('ai_configure',{'harness_enabled':True,'harness_max_steps':24 if args.advanced else 16,'harness_max_images':4 if args.advanced else 0,'harness_max_rollbacks':3})
             prompt='请把这张花树下的 cosplay 人像修成清新通透、自然柔和的成片。适度改善人物肤色与白衣亮度，保留皮肤质感、银蓝发丝、白花高光和深蓝衣裙层次，背景绿叶稍微柔和一些。保持人物身份、五官、服装、花朵、武器、构图和画布尺寸，不增删物体，不磨皮成塑料，不要改动五官。你自行分析并决定调整与验收步骤。'
+            if args.prompt_file:
+                prompt=args.prompt_file.read_text(encoding='utf-8').strip()
+            (out/'recordings/demo-goal.txt').write_text(prompt,encoding='utf-8')
             m.tool('ai_edit',{'prompt':prompt})
             last=0
-            while time.monotonic()-start<950:
+            while time.monotonic()-start<(2100 if args.advanced else 950):
                 status=m.tool('ai_status')
                 if not status['busy']:break
                 elapsed=int(time.monotonic()-start)
@@ -74,13 +82,13 @@ def main():
             report['ai_outcome']=status['outcome']
             if status['outcome']!='applied':raise RuntimeError('AI did not apply a reviewed edit; inspect local private status')
             mark('review')
-            m.command('coskit.project.checkpoint',{'label':'AI · 通透调色'})
+            m.command('coskit.project.checkpoint',{'label':'AI · 换景 / 调色 / 自然精修' if args.advanced else 'AI · 通透调色'})
             time.sleep(5);shot('ai-review')
             m.tool('doc_save',{'path':'exports/ai.png'})
             time.sleep(5)
             mark('brush')
             m.control('ui.set',{'studio':{'inspector':'layers'}})
-            m.command('layer.new.layer',{'name':'手绘 · 花间柔光'})
+            m.command('layer.new.layer',{'name':'手绘 · 晨光' if args.advanced else '手绘 · 花间柔光'})
             # Original-photo coordinates. Soft light is placed among flowers, away from facial features.
             scale=clean.width/1620
             points=[(1110,330),(1130,305),(1150,280),(1170,255),(1190,235),(1210,220)]
@@ -88,7 +96,7 @@ def main():
                 m.tool('brush_stroke',{'preset':'Soft Round','points':[{'x':x*scale,'y':y*scale,'pressure':.35}],
                     'size':180*scale,'color':'#fff0d0','flow':.08,'opacity':.12,'seed':100+index})
                 time.sleep(.45)
-            m.command('coskit.project.checkpoint',{'label':'笔刷 · 花间柔光'})
+            m.command('coskit.project.checkpoint',{'label':'笔刷 · 晨光' if args.advanced else '笔刷 · 花间柔光'})
             time.sleep(4);shot('brush')
             mark('parameters')
             m.command('image.adjustments.curves',{'points':[[0,0],[64,66],[128,130],[192,194],[255,255]]})
@@ -111,12 +119,12 @@ def main():
             m.control('ui.set',{'studio':{'inspector':'ai'},'fit':True})
             info=m.tool('doc_inspect')
             assert (info['width'],info['height'])==clean.size
-            m.control('app.save',{'path':'exports/花间·演示.ckpipe'})
+            m.control('app.save',{'path':project_path})
             m.tool('doc_save',{'path':'exports/after.png'})
             time.sleep(6);shot('workspace')
             report['final_document']={k:info[k] for k in ('width','height')}
             # Save/reopen and verify decoded pixels, rather than relying on file existence.
-            m.tool('doc_open',{'path':'exports/花间·演示.ckpipe'})
+            m.tool('doc_open',{'path':project_path})
             m.tool('doc_save',{'path':'exports/reopened.png'})
             from PIL import ImageChops
             assert ImageChops.difference(Image.open(out/'exports/after.png'),Image.open(out/'exports/reopened.png')).getbbox() is None

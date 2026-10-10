@@ -28,11 +28,13 @@ The editor retains the integrated reference project's functionality. This is not
 
 A real workspace capture showing native editing, AI conversation and thumbnail version history around the same canvas.
 
-![CosKit 1.0.0 workspace with a floral portrait, AI conversation and version thumbnails](docs/images/coskit-v1-workspace.jpg)
+![CosKit 1.0.0 workspace with a Kamisato Ayaka courtyard edit, AI conversation and version thumbnails](docs/images/coskit-v1-workspace.jpg)
 
-Before and after (original on the left, demo result on the right): clarity, color and soft-light adjustments. The canvas stayed at **1620 × 1080** throughout editing; the comparison below is resized for display.
+Kamisato Ayaka, “Sword Practice After Snow” (original left, result right): courtyard background replacement, cool morning color grading, natural skin retouching and light painted on a separate layer. This example allows changes to subject placement and scale while keeping the canvas at **1620 × 1080**. The comparison is resized for display.
 
-![Floral portrait comparison: original on the left, color and soft-light edits on the right](docs/images/coskit-v1-before-after.jpg)
+![Kamisato Ayaka comparison: floral original on the left, snow-cleared courtyard on the right](docs/images/coskit-v1-before-after.jpg)
+
+The creative direction draws on the official “Tsubaki in Thawing Snow” video and character references; see the [demo brief](docs/demo-ayaka-brief.md). The tutorial uses Xiaoxiao neural narration, sentence-timed Chinese captions and English subtitles. Reopening CKPipe verified identical dimensions and exported pixels. The recording uses a main-branch build with subsequent harness fixes.
 
 These two preview images are published with metadata removed. The full walkthrough and tutorial video, original photos and project media are delivered separately and kept local. The promotional page lives in [website/coskit](website/coskit); [integration instructions](website/README.md) describe deployment under `prts.si/coskit/` and local preview before it goes live.
 
